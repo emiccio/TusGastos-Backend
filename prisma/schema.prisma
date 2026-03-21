@@ -1,0 +1,71 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  phone        String        @unique
+  name         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+  sessions     Session[]
+
+  @@map("users")
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        TransactionType
+  amount      Float
+  category    String
+  description String?
+  date        DateTime        @default(now())
+  rawMessage  String?         // El mensaje original de WhatsApp
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([userId, date])
+  @@index([userId, type])
+  @@map("transactions")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@map("sessions")
+}
+
+model WhatsappMessage {
+  id          String   @id @default(cuid())
+  messageId   String   @unique  // ID de WhatsApp para deduplicación
+  phone       String
+  body        String
+  direction   String   // "inbound" | "outbound"
+  processedAt DateTime @default(now())
+
+  @@index([messageId])
+  @@map("whatsapp_messages")
+}
+
+enum TransactionType {
+  income
+  expense
+}

@@ -1,0 +1,96 @@
+const axios = require('axios');
+const logger = require('../utils/logger');
+
+const WA_API_URL = 'https://graph.facebook.com/v19.0';
+
+/**
+ * Envía un mensaje de texto por WhatsApp
+ * @param {string} to - Número de teléfono destino (con código de país, sin +)
+ * @param {string} text - Texto del mensaje
+ */
+async function sendTextMessage(to, text) {
+  try {
+    const response = await axios.post(
+      `${WA_API_URL}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'text',
+        text: { body: text },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    logger.debug(`WhatsApp message sent to ${to}: ${response.data.messages?.[0]?.id}`);
+    return response.data;
+  } catch (error) {
+    const errData = error.response?.data;
+    logger.error(`Error sending WhatsApp message to ${to}:`, errData || error.message);
+    throw error;
+  }
+}
+
+/**
+ * Marca un mensaje como leído
+ * @param {string} messageId - ID del mensaje de WhatsApp
+ */
+async function markAsRead(messageId) {
+  try {
+    await axios.post(
+      `${WA_API_URL}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  } catch (error) {
+    // No crítico si falla
+    logger.warn(`Could not mark message ${messageId} as read`);
+  }
+}
+
+/**
+ * Extrae los datos del mensaje del payload del webhook de Meta
+ * @param {Object} body - Body del webhook
+ * @returns {Object|null} { messageId, from, text, timestamp } o null si no es mensaje de texto
+ */
+function extractMessageData(body) {
+  try {
+    const entry = body?.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+
+    // Verificar que sea un mensaje nuevo (no status update)
+    if (!value?.messages || value.messages.length === 0) return null;
+
+    const message = value.messages[0];
+
+    // Solo procesar mensajes de texto por ahora
+    if (message.type !== 'text') return null;
+
+    return {
+      messageId: message.id,
+      from: message.from,
+      text: message.text.body,
+      timestamp: new Date(parseInt(message.timestamp) * 1000),
+    };
+  } catch (error) {
+    logger.error('Error extracting message data:', error);
+    return null;
+  }
+}
+
+module.exports = { sendTextMessage, markAsRead, extractMessageData };
