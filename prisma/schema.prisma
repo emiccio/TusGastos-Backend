@@ -1,13 +1,13 @@
-// This is your Prisma schema file
-// Learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // En Render con Supabase: usar Transaction pooler (pgbouncer=true)
+  url       = env("DATABASE_URL")
+  // directUrl es la Direct connection — solo se usa para migraciones (prisma migrate)
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -31,7 +31,7 @@ model Transaction {
   category    String
   description String?
   date        DateTime        @default(now())
-  rawMessage  String?         // El mensaje original de WhatsApp
+  rawMessage  String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -55,10 +55,10 @@ model Session {
 
 model WhatsappMessage {
   id          String   @id @default(cuid())
-  messageId   String   @unique  // ID de WhatsApp para deduplicación
+  messageId   String   @unique
   phone       String
   body        String
-  direction   String   // "inbound" | "outbound"
+  direction   String
   processedAt DateTime @default(now())
 
   @@index([messageId])
