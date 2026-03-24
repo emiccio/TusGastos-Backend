@@ -1,7 +1,7 @@
 {
   "name": "tusgastos-backend",
   "version": "1.0.0",
-  "description": "Backend de TusGastos - gestión financiera personal vía WhatsApp",
+  "description": "Backend de TusGastos - gesti\u00f3n financiera personal v\u00eda WhatsApp",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -24,7 +24,8 @@
     "morgan": "^1.10.0",
     "openai": "^4.29.2",
     "winston": "^3.12.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "@google/generative-ai": "^0.21.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0",
