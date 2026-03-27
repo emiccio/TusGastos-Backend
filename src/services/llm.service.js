@@ -29,54 +29,60 @@ Tu única tarea es devolver un JSON VÁLIDO sin texto adicional, sin markdown, s
 
 CATEGORÍAS DISPONIBLES: ${CATEGORIES.join(', ')}
 
-TIPOS DE RESPUESTA:
+ESTRUCTURA DE RESPUESTA — siempre devolvés este objeto raíz:
+{
+  "items": [...],
+  "confirmation": "<mensaje amigable resumiendo todo lo que hiciste, con emoji>"
+}
 
-1. REGISTRO DE GASTO:
+Donde "items" es un array con UNO o MÁS elementos. Cada elemento puede ser:
+
+1. GASTO:
 {
   "type": "expense",
   "amount": <número en pesos, sin símbolo>,
   "category": "<categoría de la lista>",
   "description": "<descripción corta>",
-  "date": "<fecha ISO 8601 o null si es hoy>",
-  "confirmation": "<mensaje amigable confirmando el registro, máx 1 oración, con emoji>"
+  "date": "<fecha ISO 8601 o null si es hoy>"
 }
 
-2. REGISTRO DE INGRESO:
+2. INGRESO:
 {
   "type": "income",
   "amount": <número en pesos, sin símbolo>,
   "category": "<Sueldo | Freelance | Transferencia | Otros>",
   "description": "<descripción corta>",
-  "date": "<fecha ISO 8601 o null si es hoy>",
-  "confirmation": "<mensaje amigable confirmando el registro, máx 1 oración, con emoji>"
+  "date": "<fecha ISO 8601 o null si es hoy>"
 }
 
 3. CONSULTA:
 {
   "type": "query",
   "queryType": "<balance | monthly_expenses | monthly_income | top_categories | recent>",
-  "period": "<current_month | last_month | null>",
-  "confirmation": "<mensaje diciendo que vas a buscar la info>"
+  "period": "<current_month | last_month | null>"
 }
 
 4. MENSAJE NO ENTENDIDO:
 {
-  "type": "unknown",
-  "confirmation": "<mensaje amigable pidiendo que reformule, con sugerencia de ejemplo>"
+  "type": "unknown"
 }
 
 REGLAS:
 - "k" o "K" = miles (20k = 20000)
 - "ayer" = fecha de ayer, "hoy" o sin fecha = null
 - category debe ser EXACTAMENTE una de las categorías listadas
-- confirmation siempre en segunda persona, tono cercano y argentino
+- Si el mensaje tiene MÚLTIPLES gastos/ingresos, creá un item por cada uno
+- Si hay una consulta, items tiene un solo elemento de tipo query
+- Si no entendés nada, items tiene un solo elemento de tipo unknown
+- confirmation siempre en segunda persona, resumí todos los ítems registrados
 - Solo JSON, sin explicaciones ni markdown
 
 EJEMPLOS:
-"gasté 20k en súper" → expense, 20000, Supermercado
-"ayer pagué 10k de nafta" → expense, 10000, Nafta
-"cobré 500k" → income, 500000, Sueldo
-"cuánto gasté este mes" → query, monthly_expenses, current_month`;
+"gasté 20k en súper" → items: [{expense, 20000, Supermercado}]
+"carnicería 23k, verdulería 17k, panadería 3500" → items: [{expense, 23000, Supermercado}, {expense, 17000, Supermercado}, {expense, 3500, Supermercado}]
+"ayer pagué 10k de nafta" → items: [{expense, 10000, Nafta, date=ayer}]
+"cobré 500k" → items: [{income, 500000, Sueldo}]
+"cuánto gasté este mes" → items: [{query, monthly_expenses, current_month}]`;
 
 const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de TusGastos. Con los datos financieros del usuario generás una respuesta breve, clara y amigable en español argentino.
 - Máximo 3-4 líneas
@@ -105,7 +111,7 @@ async function parseWithOpenAI(message, todayDate) {
 async function parseWithGemini(message, todayDate) {
   if (!gemini) throw new Error('Gemini no configurado — falta GEMINI_API_KEY');
   const model = gemini.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 300,
@@ -135,7 +141,7 @@ async function queryWithOpenAI(queryType, data) {
 async function queryWithGemini(queryType, data) {
   if (!gemini) throw new Error('Gemini no configurado');
   const model = gemini.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
     generationConfig: { temperature: 0.7, maxOutputTokens: 200 },
   });
   const prompt = `${QUERY_SYSTEM_PROMPT}\n\nConsulta: ${queryType}\nDatos: ${JSON.stringify(data, null, 2)}\n\nGenerá una respuesta para el usuario.`;
@@ -160,21 +166,26 @@ function isRetryableError(err) {
   const status = err.status || err.httpStatusCode;
   const msg = err.message || '';
   return (
+    status === 404 ||                          // Model not found / deprecado
     status === 429 ||                          // Rate limit / quota
     status === 401 ||                          // Auth inválida
     status === 403 ||                          // Forbidden
     msg.includes('quota') ||
     msg.includes('RESOURCE_EXHAUSTED') ||      // Gemini quota
+    msg.includes('not found') ||               // Model deprecado
     msg.includes('API key') ||
     msg.includes('billing')
   );
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function withFallback(openAiFn, geminiFn, fnName) {
   const order = getProviderOrder();
   let lastError;
 
-  for (const provider of order) {
+  for (let i = 0; i < order.length; i++) {
+    const provider = order[i];
     try {
       logger.debug(`LLM [${provider}]: ${fnName}`);
       const result = provider === 'openai'
@@ -183,11 +194,28 @@ async function withFallback(openAiFn, geminiFn, fnName) {
       return result;
     } catch (err) {
       lastError = err;
-      if (isRetryableError(err) && order.length > 1) {
-        logger.warn(`LLM [${provider}] falló (${err.status || err.message}) → fallback al otro provider`);
-        continue;
+      const isRateLimit = err.status === 429;
+      const hasNextProvider = i < order.length - 1;
+
+      if (!isRetryableError(err)) {
+        throw err; // Error no recuperable
       }
-      throw err; // Error no recuperable, no intentar fallback
+
+      if (isRateLimit && !hasNextProvider) {
+        // Último provider con rate limit — esperar 3s y reintentar una vez
+        logger.warn(`LLM [${provider}] rate limit → esperando 3s y reintentando`);
+        await sleep(3000);
+        try {
+          const result = provider === 'openai'
+            ? await openAiFn()
+            : await geminiFn();
+          return result;
+        } catch (retryErr) {
+          lastError = retryErr;
+        }
+      } else if (hasNextProvider) {
+        logger.warn(`LLM [${provider}] falló (${err.status || err.message}) → fallback al otro provider`);
+      }
     }
   }
 
