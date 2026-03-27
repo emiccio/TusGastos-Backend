@@ -58,8 +58,9 @@ Donde "items" es un array con UNO o MÁS elementos. Cada elemento puede ser:
 3. CONSULTA:
 {
   "type": "query",
-  "queryType": "<balance | monthly_expenses | monthly_income | top_categories | recent>",
-  "period": "<current_month | last_month | null>"
+  "queryType": "<balance | monthly_expenses | monthly_income | top_categories | category_expenses | recent>",
+  "period": "<current_month | last_month | null>",
+  "category": "<categoría exacta de la lista, solo cuando queryType es category_expenses, sino null>"
 }
 
 4. MENSAJE NO ENTENDIDO:
@@ -82,14 +83,16 @@ EJEMPLOS:
 "carnicería 23k, verdulería 17k, panadería 3500" → items: [{expense, 23000, Supermercado}, {expense, 17000, Supermercado}, {expense, 3500, Supermercado}]
 "ayer pagué 10k de nafta" → items: [{expense, 10000, Nafta, date=ayer}]
 "cobré 500k" → items: [{income, 500000, Sueldo}]
-"cuánto gasté este mes" → items: [{query, monthly_expenses, current_month}]`;
+"cuánto gasté este mes" → items: [{query, monthly_expenses, current_month}]
+"cuánto gasté en comida" → items: [{query, category_expenses, current_month, category: "Restaurantes"}]
+"cuánto gasté en supermercado el mes pasado" → items: [{query, category_expenses, last_month, category: "Supermercado"}]`;
 
 const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de TusGastos. Con los datos financieros del usuario generás una respuesta breve, clara y amigable en español argentino.
-- Máximo 3-4 líneas
-- Usá emojis con moderación
+- Máximo 2-3 líneas
+- Máximo 1 emoji por respuesta, solo si suma algo. Si no suma, no pongas ninguno
 - Formatá los montos con $ y puntos de miles (ej: $20.000)
-- Tono cercano y útil
-- Si hay algo llamativo (gasto alto, buen ahorro), mencionalo brevemente`;
+- Tono cercano, directo y útil. Sin exclamaciones exageradas
+- Respondé exactamente lo que se preguntó, sin agregar info que no pidieron`;
 
 // ── Providers ───────────────────────────────────────────────────
 

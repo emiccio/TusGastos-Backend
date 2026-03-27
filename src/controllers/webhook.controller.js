@@ -86,8 +86,7 @@ async function handleWebhook(req, res) {
         }
 
         case 'query': {
-          const data = await transactionService.resolveQuery(user.id, item.queryType, item.period);
-          // Para queries, el responseText lo genera el LLM con los datos reales
+          const data = await transactionService.resolveQuery(user.id, item.queryType, item.period, item.category || null);
           responseText = await llmService.generateQueryResponse(item.queryType, data);
           break;
         }

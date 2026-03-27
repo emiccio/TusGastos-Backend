@@ -172,18 +172,41 @@ async function getTransactions(userId, { page = 1, limit = 20, type, category, f
 /**
  * Resuelve una consulta de tipo "query" del LLM y devuelve los datos
  */
-async function resolveQuery(userId, queryType, period) {
+async function getCategoryExpenses(userId, category, monthOffset = 0) {
+  const now = new Date();
+  const targetMonth = subMonths(now, monthOffset);
+  const from = startOfMonth(targetMonth);
+  const to = endOfMonth(targetMonth);
+
+  const transactions = await prisma.transaction.findMany({
+    where: { userId, type: 'expense', category, date: { gte: from, lte: to } },
+    select: { amount: true, description: true, date: true },
+    orderBy: { date: 'desc' },
+  });
+
+  const total = transactions.reduce((sum, t) => sum + t.amount, 0);
+
+  return {
+    period: format(targetMonth, 'MMMM yyyy'),
+    category,
+    total,
+    count: transactions.length,
+    transactions: transactions.slice(0, 5), // últimas 5 para contexto
+  };
+}
+
+async function resolveQuery(userId, queryType, period, category = null) {
   const monthOffset = period === 'last_month' ? 1 : 0;
 
   switch (queryType) {
     case 'balance':
-      return getMonthlyBalance(userId, monthOffset);
     case 'monthly_expenses':
-      return getMonthlyBalance(userId, monthOffset);
     case 'monthly_income':
       return getMonthlyBalance(userId, monthOffset);
     case 'top_categories':
       return getTopCategories(userId, monthOffset);
+    case 'category_expenses':
+      return getCategoryExpenses(userId, category || 'Otros', monthOffset);
     case 'recent':
       return getRecentTransactions(userId, 5);
     default:
