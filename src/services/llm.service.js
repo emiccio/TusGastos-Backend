@@ -17,10 +17,9 @@ const gemini = process.env.GEMINI_API_KEY
 const PRIMARY = process.env.LLM_PROVIDER || 'auto';
 
 const CATEGORIES = [
-  'Supermercado', 'Restaurantes', 'Transporte', 'Nafta',
-  'Servicios', 'Salud', 'Farmacia', 'Ropa', 'Entretenimiento',
-  'Educación', 'Viajes', 'Hogar', 'Sueldo', 'Freelance',
-  'Transferencia', 'Otros',
+  'Supermercado', 'Comida', 'Salidas', 'Transporte', 'Auto',
+  'Casa', 'Salud', 'Farmacia', 'Ropa', 'Educación',
+  'Viajes', 'Sueldo', 'Freelance', 'Transferencia', 'Otros',
 ];
 
 const SYSTEM_PROMPT = `Sos Lulu, el asistente financiero de TusGastos. Analizás mensajes de WhatsApp en español (especialmente argentino) para registrar gastos e ingresos, o responder consultas financieras.
@@ -78,14 +77,22 @@ REGLAS:
 - confirmation siempre en segunda persona, resumí todos los ítems registrados
 - Solo JSON, sin explicaciones ni markdown
 
+DEFINICIONES IMPORTANTES DE CATEGORÍAS (Usá esto para guiarte):
+- "Comida": incluye carnicería, verdulería, panadería, etc.
+- "Auto": incluye reparaciones de mecánico, seguro, patente, nafta, etc.
+- "Salidas": todo lo que tenga que ver con recreación y disfrute en pareja, familia o amigos (incluye restaurantes).
+- "Casa": todo lo que tenga que ver con el mantenimiento, servicios básicos (luz, gas), seguro hogar, alquiler, expensas, etc.
+
 EJEMPLOS:
 "gasté 20k en súper" → items: [{expense, 20000, Supermercado}]
-"carnicería 23k, verdulería 17k, panadería 3500" → items: [{expense, 23000, Supermercado}, {expense, 17000, Supermercado}, {expense, 3500, Supermercado}]
-"ayer pagué 10k de nafta" → items: [{expense, 10000, Nafta, date=ayer}]
+"carnicería 23k, verdulería 17k, panadería 3500" → items: [{expense, 23000, Comida}, {expense, 17000, Comida}, {expense, 3500, Comida}]
+"ayer pagué 10k de nafta y 30k de seguro" → items: [{expense, 10000, Auto, date=ayer}, {expense, 30000, Auto, date=ayer}]
 "cobré 500k" → items: [{income, 500000, Sueldo}]
+"cenamos afuera en un restaurante por 30k" → items: [{expense, 30000, Salidas}]
+"pagué la luz por 15k y el alquiler 200k" → items: [{expense, 15000, Casa}, {expense, 200000, Casa}]
 "cuánto gasté este mes" → items: [{query, monthly_expenses, current_month}]
-"cuánto gasté en comida" → items: [{query, category_expenses, current_month, category: "Restaurantes"}]
-"cuánto gasté en supermercado el mes pasado" → items: [{query, category_expenses, last_month, category: "Supermercado"}]`;
+"cuánto gasté en salidas" → items: [{query, category_expenses, current_month, category: "Salidas"}]
+"cuánto gasté en casa el mes pasado" → items: [{query, category_expenses, last_month, category: "Casa"}]`;
 
 const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de TusGastos. Con los datos financieros del usuario generás una respuesta breve, clara y amigable en español argentino.
 - Máximo 2-3 líneas
