@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const categoriesController = require('../controllers/categories.controller');
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth.middleware');
 
 // Todas protegidas por el middleware de auth
 router.use(auth);
