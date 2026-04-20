@@ -10,6 +10,8 @@ const logger = require('./utils/logger');
 const webhookRoutes = require('./routes/webhook.routes');
 const authRoutes = require('./routes/auth.routes');
 const transactionRoutes = require('./routes/transactions.routes');
+const householdRoutes = require('./routes/household.routes');
+const categoriesRoutes = require('./routes/categories.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -53,6 +55,8 @@ app.get('/health', (req, res) => {
 app.use('/webhook', webhookRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/household', householdRoutes);
+app.use('/api/categories', categoriesRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────────
 app.use('*', (req, res) => {

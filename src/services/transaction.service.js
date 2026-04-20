@@ -3,50 +3,86 @@ const logger = require('../utils/logger');
 const { startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, format } = require('./date.utils');
 
 /**
- * Obtiene o crea un usuario por número de teléfono
+ * Obtiene o crea un usuario por número de teléfono, asignándole un Hogar por defecto.
  */
 async function getOrCreateUser(phone) {
   let user = await prisma.user.findUnique({ where: { phone } });
 
   if (!user) {
     user = await prisma.user.create({ data: { phone } });
-    logger.info(`New user created: ${phone}`);
+    
+    const household = await prisma.household.create({
+      data: {
+        name: `Hogar`,
+        ownerId: user.id,
+        members: {
+          create: {
+            userId: user.id,
+            role: 'ADMIN'
+          }
+        }
+      }
+    });
+
+    logger.info(`New user created: ${phone} along with default household ${household.id}`);
   }
 
   return user;
 }
 
 /**
+ * Obtiene el Hogar activo para un usuario (MVP: el primero al que pertenece)
+ */
+async function getActiveHousehold(userId) {
+  const member = await prisma.householdMember.findFirst({
+    where: { userId },
+    orderBy: { joinedAt: 'asc' }
+  });
+  
+  if (!member) {
+    // Failsafe por si un usuario antiguo no tiene hogar, le creamos uno provisorio (aunque borramos la BD).
+    throw new Error('User does not belong to any household');
+  }
+  
+  return member.householdId;
+}
+
+/**
  * Crea una transacción
  */
-async function createTransaction({ userId, type, amount, category, description, date, rawMessage }) {
+async function createTransaction({ userId, type, amount, category, description, date, paymentMethod, rawMessage }) {
+  const householdId = await getActiveHousehold(userId);
+
   const transaction = await prisma.transaction.create({
     data: {
       userId,
+      householdId,
       type,
       amount,
       category,
       description: description || null,
       date: date ? new Date(date) : new Date(),
+      paymentMethod: paymentMethod || 'cash',
       rawMessage: rawMessage || null,
     },
   });
 
-  logger.info(`Transaction created: ${type} $${amount} (${category}) for user ${userId}`);
+  logger.info(`Transaction created: ${type} $${amount} (${category}) for user ${userId} in household ${householdId}`);
   return transaction;
 }
 
 /**
- * Obtiene el balance del mes actual
+ * Obtiene el balance del mes actual para el hogar activo
  */
 async function getMonthlyBalance(userId, monthOffset = 0) {
+  const householdId = await getActiveHousehold(userId);
   const now = new Date();
   const targetMonth = subMonths(now, monthOffset);
   const from = startOfMonth(targetMonth);
   const to = endOfMonth(targetMonth);
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId, date: { gte: from, lte: to } },
+    where: { householdId, date: { gte: from, lte: to } },
     select: { type: true, amount: true },
   });
 
@@ -71,13 +107,14 @@ async function getMonthlyBalance(userId, monthOffset = 0) {
  * Obtiene gastos agrupados por categoría del mes actual
  */
 async function getTopCategories(userId, monthOffset = 0) {
+  const householdId = await getActiveHousehold(userId);
   const now = new Date();
   const targetMonth = subMonths(now, monthOffset);
   const from = startOfMonth(targetMonth);
   const to = endOfMonth(targetMonth);
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId, type: 'expense', date: { gte: from, lte: to } },
+    where: { householdId, type: 'expense', date: { gte: from, lte: to } },
     select: { category: true, amount: true },
   });
 
@@ -104,16 +141,20 @@ async function getTopCategories(userId, monthOffset = 0) {
  * Obtiene las últimas transacciones
  */
 async function getRecentTransactions(userId, limit = 5) {
+  const householdId = await getActiveHousehold(userId);
+
   const transactions = await prisma.transaction.findMany({
-    where: { userId },
+    where: { householdId },
     orderBy: { date: 'desc' },
     take: limit,
     select: {
+      id: true,
       type: true,
       amount: true,
       category: true,
       description: true,
       date: true,
+      paymentMethod: true,
     },
   });
 
@@ -138,7 +179,8 @@ async function getDashboardData(userId) {
  * Obtiene transacciones con filtros (para la tabla del frontend)
  */
 async function getTransactions(userId, { page = 1, limit = 20, type, category, from, to } = {}) {
-  const where = { userId };
+  const householdId = await getActiveHousehold(userId);
+  const where = { householdId };
 
   if (type) where.type = type;
   if (category) where.category = category;
@@ -173,13 +215,14 @@ async function getTransactions(userId, { page = 1, limit = 20, type, category, f
  * Resuelve una consulta de tipo "query" del LLM y devuelve los datos
  */
 async function getCategoryExpenses(userId, category, monthOffset = 0) {
+  const householdId = await getActiveHousehold(userId);
   const now = new Date();
   const targetMonth = subMonths(now, monthOffset);
   const from = startOfMonth(targetMonth);
   const to = endOfMonth(targetMonth);
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId, type: 'expense', category, date: { gte: from, lte: to } },
+    where: { householdId, type: 'expense', category, date: { gte: from, lte: to } },
     select: { amount: true, description: true, date: true },
     orderBy: { date: 'desc' },
   });
@@ -216,6 +259,7 @@ async function resolveQuery(userId, queryType, period, category = null) {
 
 module.exports = {
   getOrCreateUser,
+  getActiveHousehold,
   createTransaction,
   getMonthlyBalance,
   getTopCategories,
