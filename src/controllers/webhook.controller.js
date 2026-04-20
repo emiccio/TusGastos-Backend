@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const llmService = require('../services/llm.service');
 const whatsappService = require('../services/whatsapp.service');
 const transactionService = require('../services/transaction.service');
+const categoriesService = require('../services/categories.service');
 const { resolveDate } = require('../services/date.utils');
 const logger = require('../utils/logger');
 
@@ -55,12 +56,20 @@ async function handleWebhook(req, res) {
 
     await whatsappService.markAsRead(messageId);
 
-    // ── Obtener o crear usuario ────────────────────────────────
+    // ── Obtener o crear usuario y hogar ────────────────────────
     const user = await transactionService.getOrCreateUser(from);
+    const householdId = await transactionService.getActiveHousehold(user.id);
+    
+    // Verificar si el dueño del hogar es Premium
+    const household = await prisma.household.findUnique({ where: { id: householdId }, include: { owner: true } });
+    const isPremium = household?.owner?.plan === 'PREMIUM';
+
+    // Obtener categorías (lazy seeding si no existen) y prepararlas
+    const categoriesArr = await categoriesService.getCategoryNamesForLLM(householdId);
 
     // ── Parsear mensaje con LLM ────────────────────────────────
     const today = new Date().toISOString().split('T')[0];
-    const parsed = await llmService.parseMessage(text, today);
+    const parsed = await llmService.parseMessage(text, today, categoriesArr.join(', '));
     logger.debug(`LLM parsed: ${JSON.stringify(parsed)}`);
 
     // El LLM ahora devuelve siempre { items: [...], confirmation: "..." }
@@ -72,16 +81,28 @@ async function handleWebhook(req, res) {
       switch (item.type) {
         case 'expense':
         case 'income': {
+          let categoryToSave = item.category;
+
+          // Si es Premium y es gasto, aplicamos reglas sobre la categoría generada
+          if (isPremium && item.type === 'expense') {
+            const ruleMatch = await categoriesService.evaluateRules(householdId, item.description);
+            if (ruleMatch) {
+              logger.info(`Rule matched for "${item.description}": replacing category ${categoryToSave} -> ${ruleMatch}`);
+              categoryToSave = ruleMatch;
+            }
+          }
+
           await transactionService.createTransaction({
             userId: user.id,
             type: item.type,
             amount: item.amount,
-            category: item.category,
+            category: categoryToSave,
             description: item.description,
             date: resolveDate(item.date),
+            paymentMethod: item.paymentMethod || 'cash',
             rawMessage: text,
           });
-          logger.info(`Transaction created: ${item.type} $${item.amount} (${item.category})`);
+          logger.info(`Transaction created: ${item.type} $${item.amount} (${categoryToSave})`);
           break;
         }
 

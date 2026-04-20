@@ -31,7 +31,7 @@ async function list(req, res) {
  */
 async function create(req, res) {
   try {
-    const { type, amount, category, description, date } = req.body;
+    const { type, amount, category, description, date, paymentMethod } = req.body;
 
     if (!type || !amount || !category) {
       return res.status(400).json({ error: 'type, amount y category son requeridos' });
@@ -52,6 +52,7 @@ async function create(req, res) {
       category,
       description,
       date: date ? new Date(date) : new Date(),
+      paymentMethod,
     });
 
     return res.status(201).json(transaction);
@@ -74,11 +75,18 @@ async function remove(req, res) {
     const prisma = require('../config/database');
 
     const transaction = await prisma.transaction.findFirst({
-      where: { id, userId: req.user.id },
+      where: { 
+        id, 
+        household: { 
+          members: { 
+            some: { userId: req.user.id } 
+          } 
+        } 
+      },
     });
 
     if (!transaction) {
-      return res.status(404).json({ error: 'Transacción no encontrada' });
+      return res.status(404).json({ error: 'Transacción no encontrada o sin permisos' });
     }
 
     await prisma.transaction.delete({ where: { id } });

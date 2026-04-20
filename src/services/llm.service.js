@@ -26,7 +26,7 @@ const SYSTEM_PROMPT = `Sos Lulu, el asistente financiero de TusGastos. Analizás
 
 Tu única tarea es devolver un JSON VÁLIDO sin texto adicional, sin markdown, sin explicaciones.
 
-CATEGORÍAS DISPONIBLES: ${CATEGORIES.join(', ')}
+CATEGORÍAS DISPONIBLES: {{CATEGORIES}}
 
 ESTRUCTURA DE RESPUESTA — siempre devolvés este objeto raíz:
 {
@@ -42,7 +42,8 @@ Donde "items" es un array con UNO o MÁS elementos. Cada elemento puede ser:
   "amount": <número en pesos, sin símbolo>,
   "category": "<categoría de la lista>",
   "description": "<descripción corta>",
-  "date": "<fecha ISO 8601 o null si es hoy>"
+  "date": "<fecha ISO 8601 o null si es hoy>",
+  "paymentMethod": "<credit si menciona tarjeta de crédito, si no cash>"
 }
 
 2. INGRESO:
@@ -71,6 +72,7 @@ REGLAS:
 - "k" o "K" = miles (20k = 20000)
 - "ayer" = fecha de ayer, "hoy" o sin fecha = null
 - category debe ser EXACTAMENTE una de las categorías listadas
+- paymentMethod debe ser 'credit' si dice o implica pagar con tarjeta de crédito/tc/crédito, de lo contrario 'cash'.
 - Si el mensaje tiene MÚLTIPLES gastos/ingresos, creá un item por cada uno
 - Si hay una consulta, items tiene un solo elemento de tipo query
 - Si no entendés nada, items tiene un solo elemento de tipo unknown
@@ -84,12 +86,12 @@ DEFINICIONES IMPORTANTES DE CATEGORÍAS (Usá esto para guiarte):
 - "Casa": todo lo que tenga que ver con el mantenimiento, servicios básicos (luz, gas), seguro hogar, alquiler, expensas, etc.
 
 EJEMPLOS:
-"gasté 20k en súper" → items: [{expense, 20000, Supermercado}]
-"carnicería 23k, verdulería 17k, panadería 3500" → items: [{expense, 23000, Comida}, {expense, 17000, Comida}, {expense, 3500, Comida}]
-"ayer pagué 10k de nafta y 30k de seguro" → items: [{expense, 10000, Auto, date=ayer}, {expense, 30000, Auto, date=ayer}]
+"gasté 20k en súper" → items: [{expense, 20000, Supermercado, paymentMethod: cash}]
+"carnicería 23k con tarjeta de crédito" → items: [{expense, 23000, Comida, paymentMethod: credit}]
+"ayer pagué 10k de nafta y 30k de seguro" → items: [{expense, 10000, Auto, date=ayer, paymentMethod: cash}, {expense, 30000, Auto, date=ayer, paymentMethod: cash}]
 "cobré 500k" → items: [{income, 500000, Sueldo}]
-"cenamos afuera en un restaurante por 30k" → items: [{expense, 30000, Salidas}]
-"pagué la luz por 15k y el alquiler 200k" → items: [{expense, 15000, Casa}, {expense, 200000, Casa}]
+"cenamos afuera en un restaurante por 30k" → items: [{expense, 30000, Salidas, paymentMethod: cash}]
+"pagué la luz por 15k y el alquiler 200k" → items: [{expense, 15000, Casa, paymentMethod: cash}, {expense, 200000, Casa, paymentMethod: cash}]
 "cuánto gasté este mes" → items: [{query, monthly_expenses, current_month}]
 "cuánto gasté en salidas" → items: [{query, category_expenses, current_month, category: "Salidas"}]
 "cuánto gasté en casa el mes pasado" → items: [{query, category_expenses, last_month, category: "Casa"}]`;
@@ -103,12 +105,16 @@ const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de TusGastos. Con lo
 
 // ── Providers ───────────────────────────────────────────────────
 
-async function parseWithOpenAI(message, todayDate) {
+async function parseWithOpenAI(message, todayDate, customCategoriesString) {
   if (!openai) throw new Error('OpenAI no configurado — falta OPENAI_API_KEY');
+  
+  const categoriesToUse = customCategoriesString || CATEGORIES.join(', ');
+  const prompt = SYSTEM_PROMPT.replace('{{CATEGORIES}}', categoriesToUse);
+  
   const completion = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: prompt },
       { role: 'user', content: `Fecha de hoy: ${todayDate}\n\nMensaje: "${message}"` },
     ],
     temperature: 0.1,
@@ -118,7 +124,7 @@ async function parseWithOpenAI(message, todayDate) {
   return JSON.parse(completion.choices[0].message.content);
 }
 
-async function parseWithGemini(message, todayDate) {
+async function parseWithGemini(message, todayDate, customCategoriesString) {
   if (!gemini) throw new Error('Gemini no configurado — falta GEMINI_API_KEY');
   const model = gemini.getGenerativeModel({
     model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
@@ -128,7 +134,11 @@ async function parseWithGemini(message, todayDate) {
       responseMimeType: 'application/json',
     },
   });
-  const prompt = `${SYSTEM_PROMPT}\n\nFecha de hoy: ${todayDate}\n\nMensaje: "${message}"`;
+  
+  const categoriesToUse = customCategoriesString || CATEGORIES.join(', ');
+  const promptText = SYSTEM_PROMPT.replace('{{CATEGORIES}}', categoriesToUse);
+  
+  const prompt = `${promptText}\n\nFecha de hoy: ${todayDate}\n\nMensaje: "${message}"`;
   const result = await model.generateContent(prompt);
   const raw = result.response.text().replace(/```json\n?|\n?```/g, '').trim();
   return JSON.parse(raw);
@@ -234,12 +244,12 @@ async function withFallback(openAiFn, geminiFn, fnName) {
 
 // ── API pública ─────────────────────────────────────────────────
 
-async function parseMessage(message, todayDate) {
+async function parseMessage(message, todayDate, customCategoriesString = null) {
   try {
     logger.debug(`Parsing: "${message}"`);
     const result = await withFallback(
-      () => parseWithOpenAI(message, todayDate),
-      () => parseWithGemini(message, todayDate),
+      () => parseWithOpenAI(message, todayDate, customCategoriesString),
+      () => parseWithGemini(message, todayDate, customCategoriesString),
       'parseMessage'
     );
     logger.debug(`LLM parsed: ${JSON.stringify(result)}`);
