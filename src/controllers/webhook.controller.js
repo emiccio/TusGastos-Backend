@@ -56,12 +56,63 @@ async function handleWebhook(req, res) {
 
     await whatsappService.markAsRead(messageId);
 
-    // ── Obtener o crear usuario y hogar ────────────────────────
-    const user = await transactionService.getOrCreateUser(from);
+    // ── Obtener o crear usuario ────────────────────────────────
+    const { user, created } = await transactionService.getOrCreateUser(from);
+
+    // ── Intercepción de onboarding ─────────────────────────────
+    if (user.onboardingStep !== null) {
+
+      if (created) {
+        // Primera vez que escribe — Lulú se presenta y pide el nombre
+        const greeting =
+          `¡Hola! 👋 Soy Lulú.\n\n` +
+          `Te ayudo a registrar tus gastos e ingresos directamente por WhatsApp.\n\n` +
+          `Nada de apps, planillas ni formularios 🙂 \n\n` +
+          `Para empezar... ¿cómo te llamás?`;
+
+        await whatsappService.sendTextMessage(from, greeting);
+        await prisma.whatsappMessage.create({
+          data: { messageId: `out_${messageId}`, phone: from, body: greeting, direction: 'outbound' },
+        });
+        logger.info(`Onboarding started for new user ${from}`);
+        return;
+      }
+
+      if (user.onboardingStep === 'WAITING_NAME') {
+        // Ya se presentó — lo que llegó ahora es el nombre
+        const nombre = text.trim();
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { name: nombre, onboardingStep: null },
+        });
+
+        const welcome =
+          `¡Listo ${nombre}! 🎉\n\n` +
+          `Ya podés registrar gastos e ingresos conmigo.\n\n` +
+          `Por ejemplo podés escribirme:\n` +
+          `• "supermercado 8500"\n` +
+          `• "cobré el sueldo 200k"\n` +
+          `• "¿cuánto gasté esta semana?"\n\n` +
+          `Probá mandarme tu primer gasto 🙂`;
+
+        await whatsappService.sendTextMessage(from, welcome);
+        await prisma.whatsappMessage.create({
+          data: { messageId: `out_${messageId}`, phone: from, body: welcome, direction: 'outbound' },
+        });
+        logger.info(`Onboarding completed for user ${from} — name: "${nombre}"`);
+        return;
+      }
+    }
+
+    // ── Flujo normal (usuario ya registrado) ───────────────────
     const householdId = await transactionService.getActiveHousehold(user.id);
-    
+
     // Verificar si el dueño del hogar es Premium
-    const household = await prisma.household.findUnique({ where: { id: householdId }, include: { owner: true } });
+    const household = await prisma.household.findUnique({
+      where: { id: householdId },
+      include: { owner: true },
+    });
     const isPremium = household?.owner?.plan === 'PREMIUM';
 
     // Obtener categorías (lazy seeding si no existen) y prepararlas
@@ -72,7 +123,6 @@ async function handleWebhook(req, res) {
     const parsed = await llmService.parseMessage(text, today, categoriesArr.join(', '));
     logger.debug(`LLM parsed: ${JSON.stringify(parsed)}`);
 
-    // El LLM ahora devuelve siempre { items: [...], confirmation: "..." }
     const items = parsed.items || [];
     let responseText = parsed.confirmation || '';
 
@@ -83,7 +133,6 @@ async function handleWebhook(req, res) {
         case 'income': {
           let categoryToSave = item.category;
 
-          // Si es Premium y es gasto, aplicamos reglas sobre la categoría generada
           if (isPremium && item.type === 'expense') {
             const ruleMatch = await categoriesService.evaluateRules(householdId, item.description);
             if (ruleMatch) {
@@ -156,7 +205,7 @@ async function handleWebhook(req, res) {
           '😅 Tuve un problema procesando tu mensaje. Intentá de nuevo en un momento.'
         );
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 }
 

@@ -17,7 +17,8 @@ model User {
   plan            PlanType          @default(FREE)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
-  
+  onboardingStep  String?           @default("WAITING_NAME") // null = onboarding completo, "WAITING_NAME" = esperando que dé su nombre
+
   transactions    Transaction[]     // transacciones creadas por este usuario
   sessions        Session[]
   memberships     HouseholdMember[]
