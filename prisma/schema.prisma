@@ -15,9 +15,9 @@ model User {
   phone           String            @unique
   name            String?
   plan            PlanType          @default(FREE)
+  onboardingStep  String?           @default("WAITING_NAME") // null = onboarding completo, "WAITING_NAME" = esperando que dé su nombre
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
-  onboardingStep  String?           @default("WAITING_NAME") // null = onboarding completo, "WAITING_NAME" = esperando que dé su nombre
 
   transactions    Transaction[]     // transacciones creadas por este usuario
   sessions        Session[]
@@ -25,6 +25,7 @@ model User {
   ownedHouseholds Household[]       @relation("HouseholdOwner")
   createdInvites  HouseholdInvite[] @relation("InviteCreator")
   usedInvites     HouseholdInvite[] @relation("InviteUser")
+  otpCodes        OtpCode[]
 
   @@map("users")
 }
@@ -172,4 +173,17 @@ model CategoryRule {
   
   @@unique([householdId, keyword])
   @@map("category_rules")
+}
+
+model OtpCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("otp_codes")
 }
