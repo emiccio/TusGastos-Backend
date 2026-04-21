@@ -7,10 +7,11 @@ const { startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, format } = re
  */
 async function getOrCreateUser(phone) {
   let user = await prisma.user.findUnique({ where: { phone } });
+  let created = false;
 
   if (!user) {
-    user = await prisma.user.create({ data: { phone } });
-    
+    user = await prisma.user.create({ data: { phone, onboardingStep: 'WAITING_NAME' } });
+
     const household = await prisma.household.create({
       data: {
         name: `Hogar`,
@@ -25,9 +26,10 @@ async function getOrCreateUser(phone) {
     });
 
     logger.info(`New user created: ${phone} along with default household ${household.id}`);
+    created = true;
   }
 
-  return user;
+  return { user, created };
 }
 
 /**
@@ -38,12 +40,12 @@ async function getActiveHousehold(userId) {
     where: { userId },
     orderBy: { joinedAt: 'asc' }
   });
-  
+
   if (!member) {
     // Failsafe por si un usuario antiguo no tiene hogar, le creamos uno provisorio (aunque borramos la BD).
     throw new Error('User does not belong to any household');
   }
-  
+
   return member.householdId;
 }
 
