@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const llmService = require('../services/llm.service');
+const commandService = require('../services/command.service');
 const whatsappService = require('../services/whatsapp.service');
 const transactionService = require('../services/transaction.service');
 const categoriesService = require('../services/categories.service');
@@ -107,6 +108,53 @@ async function handleWebhook(req, res) {
 
     // ── Flujo normal (usuario ya registrado) ───────────────────
     const householdId = await transactionService.getActiveHousehold(user.id);
+
+    // ── Interceptar comandos (sin usar LLM) ─────────────────────
+    const command = await commandService.handleCommand(text, user);
+
+    if (command?.handled) {
+
+      if (command.type === 'response') {
+        await whatsappService.sendTextMessage(from, command.response);
+
+        await prisma.whatsappMessage.create({
+          data: {
+            messageId: `out_${messageId}`,
+            phone: from,
+            body: command.response,
+            direction: 'outbound',
+          },
+        });
+
+        return;
+      }
+
+      if (command.type === 'query') {
+        const data = await transactionService.resolveQuery(
+          user.id,
+          command.queryType,
+          command.period
+        );
+
+        const responseText = await llmService.generateQueryResponse(
+          command.queryType,
+          data
+        );
+
+        await whatsappService.sendTextMessage(from, responseText);
+
+        await prisma.whatsappMessage.create({
+          data: {
+            messageId: `out_${messageId}`,
+            phone: from,
+            body: responseText,
+            direction: 'outbound',
+          },
+        });
+
+        return;
+      }
+    }
 
     // Verificar si el dueño del hogar es Premium
     const household = await prisma.household.findUnique({
