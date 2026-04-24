@@ -13,16 +13,22 @@ async function handleCommand(message, user) {
   const msg = normalize(message);
 
   // ── DASHBOARD ─────────────────────────
-  if (msg === "dashboard" || msg === "panel" || msg === "/dashboard") {
+  if (msg.includes("dashboard") || msg.includes("panel")) {
     return {
       handled: true,
       type: "response",
-      response: "Podés ver tu panel acá:\nhttps://tusgastos.app/dashboard"
+      response: "Podés ver tu panel acá:\nhttps://tus-gastos.vercel.app/dashboard"
     };
   }
 
   // ── AYUDA ─────────────────────────────
-  if (msg === "ayuda" || msg === "help" || msg === "/start" || msg === "menu") {
+  if (
+    msg.includes("ayuda") ||
+    msg.includes("help") ||
+    msg.includes("que puedo hacer") ||
+    msg === "/start" ||
+    msg === "menu"
+  ) {
     return {
       handled: true,
       type: "response",
@@ -47,12 +53,7 @@ Comandos directos:
   }
 
   // ── CATEGORÍAS ────────────────────────
-  if (
-    msg === "categorias" ||
-    msg === "/categorias" ||
-    msg.includes("que categorias") ||
-    msg.includes("categorias tengo")
-  ) {
+  if (msg.includes("categorias")) {
     const householdId = await transactionService.getActiveHousehold(user.id);
     const categories = await categoriesService.getCategoryNamesForLLM(householdId);
 
@@ -71,9 +72,9 @@ supermercado 15000`
   }
 
   // ── QUERIES RÁPIDAS ───────────────────
-  
+
   // Saldo / Balance
-  if (msg === "saldo" || msg === "balance" || msg === "/saldo") {
+  if (msg.includes("saldo") || msg.includes("balance")) {
     return {
       handled: true,
       type: "query",
@@ -83,10 +84,12 @@ supermercado 15000`
   }
 
   // Gastos
-  if (msg === "gastos" || msg.includes("cuanto gaste") || msg.includes("mis gastos")) {
-    // Si dice "hoy", forzamos periodo today si lo soportamos (actualmente resolveQuery usa mes)
-    // Pero el LLM suele manejar mejor "cuanto gaste hoy". 
-    // Para comando directo "gastos" devolvemos el mes.
+  if (
+    msg === "gastos" ||
+    msg.includes("cuanto gaste") ||
+    msg.includes("mis gastos") ||
+    msg.includes("resumen de gastos")
+  ) {
     return {
       handled: true,
       type: "query",
@@ -96,7 +99,12 @@ supermercado 15000`
   }
 
   // Ingresos
-  if (msg === "ingresos" || msg.includes("cuanto cobre")) {
+  if (
+    msg === "ingresos" ||
+    msg.includes("cuanto cobre") ||
+    msg.includes("mis ingresos") ||
+    msg.includes("resumen de ingresos")
+  ) {
     return {
       handled: true,
       type: "query",
@@ -106,7 +114,7 @@ supermercado 15000`
   }
 
   // Gracias
-  if (msg === "gracias" || msg === "muchas gracias" || msg === "chau") {
+  if (msg.includes("gracias") || msg === "chau" || msg === "adios") {
     return {
       handled: true,
       type: "response",
@@ -117,4 +125,4 @@ supermercado 15000`
   return { handled: false };
 }
 
-module.exports = { handleCommand };
+module.exports = { handleCommand };
