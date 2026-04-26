@@ -33,18 +33,34 @@ async function getOrCreateUser(phone) {
 }
 
 /**
- * Obtiene el Hogar activo para un usuario (MVP: el primero al que pertenece)
+ * Obtiene el Hogar activo para un usuario.
+ * Si el usuario tiene uno preferido (activeHouseholdId), usa ese.
+ * Si no, usa el primero al que pertenece y lo guarda como preferido.
  */
 async function getActiveHousehold(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { activeHouseholdId: true }
+  });
+
+  if (user?.activeHouseholdId) {
+    return user.activeHouseholdId;
+  }
+
   const member = await prisma.householdMember.findFirst({
     where: { userId },
     orderBy: { joinedAt: 'asc' }
   });
 
   if (!member) {
-    // Failsafe por si un usuario antiguo no tiene hogar, le creamos uno provisorio (aunque borramos la BD).
-    throw new Error('User does not belong to any household');
+    throw new Error('El usuario no pertenece a ningún hogar');
   }
+
+  // Guardar como activo para la próxima
+  await prisma.user.update({
+    where: { id: userId },
+    data: { activeHouseholdId: member.householdId }
+  });
 
   return member.householdId;
 }

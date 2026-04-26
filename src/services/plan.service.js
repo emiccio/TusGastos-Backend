@@ -42,8 +42,27 @@ async function canAddMemberToHousehold(householdId) {
   return household.members.length < limits.maxHouseholdMembers;
 }
 
+/**
+ * Valida si un usuario puede unirse a más hogares (ser miembro de más de uno)
+ */
+async function canJoinMoreHouseholds(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { memberships: true }
+  });
+
+  if (!user) return false;
+
+  // Si es PREMIUM, no hay límite de membresías
+  if (user.plan === 'PREMIUM') return true;
+
+  // Si es FREE, solo puede pertenecer a 1 hogar en total
+  return user.memberships.length < PLAN_LIMITS.FREE.maxHouseholdsOwned; // Usamos el mismo límite que para ser dueño
+}
+
 module.exports = {
   PLAN_LIMITS,
   canCreateHousehold,
-  canAddMemberToHousehold
+  canAddMemberToHousehold,
+  canJoinMoreHouseholds
 };
