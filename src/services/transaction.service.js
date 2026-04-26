@@ -158,8 +158,7 @@ async function getRecentTransactions(userId, limit = 5) {
     },
   });
 
-  logger.debug(`Recent transactions found: ${transactions.length}. First user: ${transactions[0]?.user?.name}`);
-  return transactions.map(t => ({ ...t, DUMMY_RELOAD: true }));
+  return transactions;
 }
 
 /**
@@ -173,7 +172,7 @@ async function getDashboardData(userId) {
     getRecentTransactions(userId, 10),
   ]);
 
-  return { currentMonth, lastMonth, topCategories, recent, DUMMY_DASH: true };
+  return { currentMonth, lastMonth, topCategories, recent };
 }
 
 /**
