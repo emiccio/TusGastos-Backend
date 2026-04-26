@@ -10,9 +10,16 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
  * nombre, plan, lista de miembros, y si puede invitar más gente.
  */
 async function getHouseholdInfo(userId) {
-  const membership = await prisma.householdMember.findFirst({
-    where: { userId },
-    orderBy: { joinedAt: 'asc' },
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { activeHouseholdId: true }
+  });
+
+  let membership = await prisma.householdMember.findFirst({
+    where: { 
+      userId,
+      householdId: user?.activeHouseholdId || undefined
+    },
     include: {
       household: {
         include: {
@@ -26,7 +33,37 @@ async function getHouseholdInfo(userId) {
         },
       },
     },
+    orderBy: { joinedAt: 'asc' },
   });
+
+  // Si no se encontró el "activo" (quizás ya no es miembro), buscar el primero disponible
+  if (!membership && user?.activeHouseholdId) {
+    membership = await prisma.householdMember.findFirst({
+      where: { userId },
+      include: {
+        household: {
+          include: {
+            owner: { select: { id: true, phone: true, name: true, plan: true } },
+            members: {
+              include: {
+                user: { select: { id: true, phone: true, name: true } },
+              },
+              orderBy: { joinedAt: 'asc' },
+            },
+          },
+        },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    if (membership) {
+      // Actualizar el activeHouseholdId al nuevo encontrado
+      await prisma.user.update({
+        where: { id: userId },
+        data: { activeHouseholdId: membership.householdId }
+      });
+    }
+  }
 
   if (!membership) {
     throw new Error('El usuario no pertenece a ningún hogar');
