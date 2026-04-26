@@ -4,7 +4,10 @@ const authMiddleware = require('../middleware/auth.middleware');
 const householdController = require('../controllers/household.controller');
 
 router.get('/', authMiddleware, householdController.getHousehold);
+router.post('/', authMiddleware, householdController.createHousehold);
+router.get('/list', authMiddleware, householdController.listHouseholds);
 router.post('/invite', authMiddleware, householdController.invite);
 router.post('/join', authMiddleware, householdController.join);
+router.post('/switch', authMiddleware, householdController.switchHousehold);
 
 module.exports = router;

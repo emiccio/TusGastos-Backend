@@ -139,7 +139,13 @@ async function login(req, res) {
 
     return res.json({
       token,
-      user: { id: user.id, phone: user.phone, name: user.name },
+      user: {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        plan: user.plan,
+        activeHouseholdId: user.activeHouseholdId,
+      },
     });
 
   } catch (error) {
@@ -167,9 +173,18 @@ async function logout(req, res) {
  * GET /auth/me
  */
 async function me(req, res) {
-  return res.json({
-    user: { id: req.user.id, phone: req.user.phone, name: req.user.name },
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      id: true,
+      phone: true,
+      name: true,
+      plan: true,
+      activeHouseholdId: true,
+    },
   });
+
+  return res.json({ user });
 }
 
 module.exports = { requestOtp, login, logout, me };

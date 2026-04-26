@@ -113,6 +113,69 @@ supermercado 15000`
     };
   }
 
+  // ── HOGARES ───────────────────────────
+  if (msg === "hogares" || msg === "casas") {
+    const { listUserHouseholds } = require('./household.service');
+    const households = await listUserHouseholds(user.id);
+    const activeId = await transactionService.getActiveHousehold(user.id);
+
+    if (households.length <= 1) {
+      return {
+        handled: true,
+        type: "response",
+        response: `Actualmente estás en el hogar: *${households[0]?.name || 'Hogar'}*.
+Para tener múltiples hogares pasate a Premium en la web.`
+      };
+    }
+
+    const list = households.map((h, i) =>
+      `${i + 1}. ${h.name} ${h.id === activeId ? '*(activo)*' : ''}`
+    ).join("\n");
+
+    return {
+      handled: true,
+      type: "response",
+      response: `🏘️ Tus hogares:
+${list}
+
+Para cambiar, escribí:
+*cambiar hogar [número]*`
+    };
+  }
+
+  if (msg.startsWith("cambiar hogar") || msg.startsWith("usar hogar")) {
+    const parts = msg.split(" ");
+    const target = parts[parts.length - 1]; // Tomar el último fragmento (número o nombre parcial)
+
+    const { listUserHouseholds, switchActiveHousehold } = require('./household.service');
+    const households = await listUserHouseholds(user.id);
+
+    let selected = null;
+    const index = parseInt(target) - 1;
+
+    if (!isNaN(index) && households[index]) {
+      selected = households[index];
+    } else {
+      selected = households.find(h => normalize(h.name).includes(normalize(target)));
+    }
+
+    if (!selected) {
+      return {
+        handled: true,
+        type: "response",
+        response: `No encontré ese hogar. Escribí *hogares* para ver la lista.`
+      };
+    }
+
+    await switchActiveHousehold(user.id, selected.id);
+
+    return {
+      handled: true,
+      type: "response",
+      response: `✅ Ahora estás usando: *${selected.name}*`
+    };
+  }
+
   // Gracias
   if (msg.includes("gracias") || msg === "chau" || msg === "adios") {
     return {

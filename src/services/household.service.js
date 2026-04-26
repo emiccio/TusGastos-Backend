@@ -134,7 +134,13 @@ async function acceptInvite(token, userId) {
     return { alreadyMember: true, householdName: invite.household.name };
   }
 
-  // Verificar límite del plan
+  // Verificar que el usuario pueda unirse a más hogares (límite del plan del usuario)
+  const canJoin = await require('./plan.service').canJoinMoreHouseholds(userId);
+  if (!canJoin) {
+    throw new Error('Tu plan actual no permite pertenecer a más de un hogar. Pasate a Premium para multihogar.');
+  }
+
+  // Verificar límite del plan del hogar
   const canInvite = await canAddMemberToHousehold(invite.householdId);
   if (!canInvite) {
     throw new Error('El hogar ya alcanzó el límite de miembros de su plan');
@@ -159,4 +165,88 @@ async function acceptInvite(token, userId) {
   return { alreadyMember: false, householdName: invite.household.name };
 }
 
-module.exports = { getHouseholdInfo, createInvite, acceptInvite };
+/**
+ * Lista todos los hogares a los que el usuario tiene acceso.
+ */
+async function listUserHouseholds(userId) {
+  const memberships = await prisma.householdMember.findMany({
+    where: { userId },
+    include: {
+      household: {
+        select: {
+          id: true,
+          name: true,
+          ownerId: true,
+          owner: { select: { plan: true } }
+        }
+      }
+    }
+  });
+
+  return memberships.map(m => ({
+    id: m.household.id,
+    name: m.household.name,
+    isOwner: m.household.ownerId === userId,
+    plan: m.household.owner.plan,
+    role: m.role
+  }));
+}
+
+/**
+ * Cambia el hogar activo del usuario, previa validación de pertenencia.
+ */
+async function switchActiveHousehold(userId, householdId) {
+  // Validar que el usuario sea miembro
+  const membership = await prisma.householdMember.findUnique({
+    where: { userId_householdId: { userId, householdId } }
+  });
+
+  if (!membership) {
+    throw new Error('No tenés acceso a este hogar');
+  }
+
+  // Actualizar preferencia
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { activeHouseholdId: householdId }
+  });
+
+  logger.info(`User ${userId} switched active household to ${householdId}`);
+  return user;
+}
+
+/**
+ * Crea un nuevo hogar y hace al usuario dueño y administrador.
+ */
+async function createHousehold(userId, name) {
+  const { canCreateHousehold } = require('./plan.service');
+  const allowed = await canCreateHousehold(userId);
+
+  if (!allowed) {
+    throw new Error('Tu plan actual no permite crear más hogares. Pasate a Premium para multihogar.');
+  }
+
+  const household = await prisma.household.create({
+    data: {
+      name,
+      ownerId: userId,
+      members: {
+        create: {
+          userId,
+          role: 'ADMIN'
+        }
+      }
+    }
+  });
+
+  // Establecer como activo automáticamente
+  await prisma.user.update({
+    where: { id: userId },
+    data: { activeHouseholdId: household.id }
+  });
+
+  logger.info(`User ${userId} created new household ${household.id} ("${name}")`);
+  return household;
+}
+
+module.exports = { getHouseholdInfo, createInvite, acceptInvite, listUserHouseholds, switchActiveHousehold, createHousehold };
