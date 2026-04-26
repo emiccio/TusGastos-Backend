@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
  */
 async function list(req, res) {
   try {
-    const { page, limit, type, category, from, to } = req.query;
+    const { page, limit, type, category, from, to, userId } = req.query;
 
     const result = await transactionService.getTransactions(req.user.id, {
       page: parseInt(page) || 1,
@@ -16,6 +16,7 @@ async function list(req, res) {
       category,
       from,
       to,
+      userId,
     });
 
     return res.json(result);

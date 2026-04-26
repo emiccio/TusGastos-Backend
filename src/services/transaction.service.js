@@ -149,18 +149,17 @@ async function getRecentTransactions(userId, limit = 5) {
     where: { householdId },
     orderBy: { date: 'desc' },
     take: limit,
-    select: {
-      id: true,
-      type: true,
-      amount: true,
-      category: true,
-      description: true,
-      date: true,
-      paymentMethod: true,
+    include: {
+      user: {
+        select: {
+          name: true,
+        },
+      },
     },
   });
 
-  return transactions;
+  logger.debug(`Recent transactions found: ${transactions.length}. First user: ${transactions[0]?.user?.name}`);
+  return transactions.map(t => ({ ...t, DUMMY_RELOAD: true }));
 }
 
 /**
@@ -174,18 +173,19 @@ async function getDashboardData(userId) {
     getRecentTransactions(userId, 10),
   ]);
 
-  return { currentMonth, lastMonth, topCategories, recent };
+  return { currentMonth, lastMonth, topCategories, recent, DUMMY_DASH: true };
 }
 
 /**
  * Obtiene transacciones con filtros (para la tabla del frontend)
  */
-async function getTransactions(userId, { page = 1, limit = 20, type, category, from, to } = {}) {
+async function getTransactions(userId, { page = 1, limit = 20, type, category, from, to, userId: reqUserId } = {}) {
   const householdId = await getActiveHousehold(userId);
   const where = { householdId };
 
   if (type) where.type = type;
   if (category) where.category = category;
+  if (reqUserId) where.userId = reqUserId;
   if (from || to) {
     where.date = {};
     if (from) where.date.gte = new Date(from);
@@ -198,6 +198,13 @@ async function getTransactions(userId, { page = 1, limit = 20, type, category, f
       orderBy: { date: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
+      include: {
+        user: {
+          select: {
+            name: true,
+          },
+        },
+      },
     }),
     prisma.transaction.count({ where }),
   ]);
