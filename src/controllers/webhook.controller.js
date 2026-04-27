@@ -55,6 +55,14 @@ async function handleWebhook(req, res) {
     // convertir audio → texto
     if (type === 'audio' && audioId) {
       const audioBuffer = await whatsappService.downloadAudio(audioId);
+
+      if (audioBuffer.length > 100 * 1024) {
+        await whatsappService.sendTextMessage(
+          from,
+          '🎤 El audio es demasiado largo. Mandame uno cortito diciendo el gasto 🙂'
+        );
+        return;
+      }
       text = await transcriptionService.transcribeAudio(audioBuffer);
     }
 
