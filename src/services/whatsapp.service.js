@@ -84,12 +84,14 @@ function extractMessageData(body) {
     const message = value.messages[0];
 
     // Solo procesar mensajes de texto por ahora
-    if (message.type !== 'text') return null;
+    // if (message.type !== 'text') return null;
 
     return {
       messageId: message.id,
       from: message.from,
-      text: message.text.body,
+      type: message.type,
+      text: message.text?.body || null,
+      audioId: message.audio?.id || null,
       timestamp: new Date(parseInt(message.timestamp) * 1000),
     };
   } catch (error) {
@@ -98,4 +100,58 @@ function extractMessageData(body) {
   }
 }
 
-module.exports = { sendTextMessage, markAsRead, extractMessageData };
+async function sendTypingIndicator(to, action = 'typing_on') {
+  try {
+    await axios.post(
+      `${WA_API_URL}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'typing',
+        typing: {
+          status: action,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  } catch (error) {
+    logger.warn(`Could not send typing indicator to ${to}`);
+  }
+}
+
+async function getMediaUrl(mediaId) {
+  const res = await axios.get(
+    `${WA_API_URL}/${mediaId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+      },
+    }
+  );
+
+  return res.data.url;
+}
+
+async function downloadMedia(mediaUrl) {
+  const res = await axios.get(mediaUrl, {
+    responseType: 'arraybuffer',
+    headers: {
+      Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+    },
+  });
+
+  return Buffer.from(res.data);
+}
+
+async function downloadAudio(mediaId) {
+  const url = await getMediaUrl(mediaId);
+  return downloadMedia(url);
+}
+
+module.exports = { sendTextMessage, markAsRead, extractMessageData, downloadAudio, sendTypingIndicator };

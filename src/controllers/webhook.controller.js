@@ -4,6 +4,7 @@ const commandService = require('../services/command.service');
 const whatsappService = require('../services/whatsapp.service');
 const transactionService = require('../services/transaction.service');
 const categoriesService = require('../services/categories.service');
+const transcriptionService = require('../services/transcription.service');
 const { resolveDate } = require('../services/date.utils');
 const logger = require('../utils/logger');
 
@@ -41,7 +42,7 @@ async function handleWebhook(req, res) {
     const messageData = whatsappService.extractMessageData(body);
     if (!messageData) return;
 
-    const { messageId, from, text, timestamp } = messageData;
+    let { messageId, from, text, audioId, type, timestamp } = messageData;
     logger.info(`Incoming message from ${from}: "${text}"`);
 
     // ── Deduplicación ──────────────────────────────────────────
@@ -51,11 +52,21 @@ async function handleWebhook(req, res) {
       return;
     }
 
+    // convertir audio → texto
+    if (type === 'audio' && audioId) {
+      const audioBuffer = await whatsappService.downloadAudio(audioId);
+      text = await transcriptionService.transcribeAudio(audioBuffer);
+    }
+
+    if (!text) return;
+
+    // ── Guardar mensaje ───────────────
     await prisma.whatsappMessage.create({
       data: { messageId, phone: from, body: text, direction: 'inbound' },
     });
 
     await whatsappService.markAsRead(messageId);
+    await whatsappService.sendTypingIndicator(from, 'typing_on');
 
     // ── Obtener o crear usuario ────────────────────────────────
     const { user, created } = await transactionService.getOrCreateUser(from);
@@ -71,6 +82,7 @@ async function handleWebhook(req, res) {
           `Nada de apps, planillas ni formularios 🙂 \n\n` +
           `Para empezar... ¿cómo te llamás?`;
 
+        await whatsappService.sendTypingIndicator(from, 'typing_off');
         await whatsappService.sendTextMessage(from, greeting);
         await prisma.whatsappMessage.create({
           data: { messageId: `out_${messageId}`, phone: from, body: greeting, direction: 'outbound' },
@@ -97,6 +109,7 @@ async function handleWebhook(req, res) {
           `• "¿cuánto gasté esta semana?"\n\n` +
           `Probá mandarme tu primer gasto 🙂`;
 
+        await whatsappService.sendTypingIndicator(from, 'typing_off');
         await whatsappService.sendTextMessage(from, welcome);
         await prisma.whatsappMessage.create({
           data: { messageId: `out_${messageId}`, phone: from, body: welcome, direction: 'outbound' },
@@ -115,6 +128,7 @@ async function handleWebhook(req, res) {
     if (command?.handled) {
 
       if (command.type === 'response') {
+        await whatsappService.sendTypingIndicator(from, 'typing_off');
         await whatsappService.sendTextMessage(from, command.response);
 
         await prisma.whatsappMessage.create({
@@ -141,6 +155,7 @@ async function handleWebhook(req, res) {
           data
         );
 
+        await whatsappService.sendTypingIndicator(from, 'typing_off');
         await whatsappService.sendTextMessage(from, responseText);
 
         await prisma.whatsappMessage.create({
@@ -230,6 +245,7 @@ async function handleWebhook(req, res) {
     }
 
     // ── Enviar respuesta ───────────────────────────────────────
+    await whatsappService.sendTypingIndicator(from, 'typing_off');
     await whatsappService.sendTextMessage(from, responseText);
 
     await prisma.whatsappMessage.create({
@@ -248,6 +264,7 @@ async function handleWebhook(req, res) {
     try {
       const messageData = whatsappService.extractMessageData(req.body);
       if (messageData?.from) {
+        await whatsappService.sendTypingIndicator(messageData.from, 'typing_off');
         await whatsappService.sendTextMessage(
           messageData.from,
           '😅 Tuve un problema procesando tu mensaje. Intentá de nuevo en un momento.'
