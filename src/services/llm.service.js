@@ -107,21 +107,41 @@ const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de TusGastos. Con lo
 
 async function parseWithOpenAI(message, todayDate, customCategoriesString) {
   if (!openai) throw new Error('OpenAI no configurado — falta OPENAI_API_KEY');
-  
+
   const categoriesToUse = customCategoriesString || CATEGORIES.join(', ');
   const prompt = SYSTEM_PROMPT.replace('{{CATEGORIES}}', categoriesToUse);
-  
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: prompt },
-      { role: 'user', content: `Fecha de hoy: ${todayDate}\n\nMensaje: "${message}"` },
-    ],
-    temperature: 0.1,
-    max_tokens: 300,
-    response_format: { type: 'json_object' },
-  });
-  return JSON.parse(completion.choices[0].message.content);
+
+  const models = [
+    'gpt-4.1-nano',
+    'gpt-4o-mini'
+  ];
+
+  let lastError;
+
+  for (const model of models) {
+    try {
+      logger.debug(`OpenAI intentando modelo: ${model}`);
+
+      const completion = await openai.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: `Fecha de hoy: ${todayDate}\n\nMensaje: "${message}"` },
+        ],
+        temperature: 0.1,
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+      });
+
+      return JSON.parse(completion.choices[0].message.content);
+
+    } catch (err) {
+      lastError = err;
+      logger.warn(`Modelo ${model} falló → probando siguiente`);
+    }
+  }
+
+  throw lastError;
 }
 
 async function parseWithGemini(message, todayDate, customCategoriesString) {
@@ -134,10 +154,10 @@ async function parseWithGemini(message, todayDate, customCategoriesString) {
       responseMimeType: 'application/json',
     },
   });
-  
+
   const categoriesToUse = customCategoriesString || CATEGORIES.join(', ');
   const promptText = SYSTEM_PROMPT.replace('{{CATEGORIES}}', categoriesToUse);
-  
+
   const prompt = `${promptText}\n\nFecha de hoy: ${todayDate}\n\nMensaje: "${message}"`;
   const result = await model.generateContent(prompt);
   const raw = result.response.text().replace(/```json\n?|\n?```/g, '').trim();
@@ -147,7 +167,7 @@ async function parseWithGemini(message, todayDate, customCategoriesString) {
 async function queryWithOpenAI(queryType, data) {
   if (!openai) throw new Error('OpenAI no configurado');
   const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: 'gpt-4.1-nano',
     messages: [
       { role: 'system', content: QUERY_SYSTEM_PROMPT },
       { role: 'user', content: `Consulta: ${queryType}\nDatos: ${JSON.stringify(data, null, 2)}\n\nGenerá una respuesta para el usuario.` },
