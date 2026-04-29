@@ -88,11 +88,16 @@ async function getHouseholdInfo(userId) {
   };
 }
 
+const userService = require('./user.service');
+
 /**
- * Genera un token de invitación para el hogar activo del usuario.
- * Reutiliza un invite vigente si ya existe uno sin usar para este hogar+usuario.
+ * Genera un token de invitación para el hogar activo del usuario, vinculado a un teléfono.
+ * Reutiliza un invite vigente si ya existe uno PENDING para este hogar + teléfono.
  */
-async function createInvite(householdId, createdById) {
+async function createInvite(householdId, createdById, phone) {
+  if (!phone) throw new Error('El teléfono es requerido para invitar');
+  const normalizedPhone = phone.replace(/[\s\-\+\(\)]/g, '');
+
   // Verificar que el usuario es ADMIN/owner del hogar
   const member = await prisma.householdMember.findUnique({
     where: { userId_householdId: { userId: createdById, householdId } },
@@ -107,12 +112,12 @@ async function createInvite(householdId, createdById) {
     throw new Error('El hogar ya alcanzó el límite de miembros de su plan');
   }
 
-  // Reutilizar invite pendiente si existe
+  // Reutilizar invite pendiente si existe para este teléfono en este hogar
   const existing = await prisma.householdInvite.findFirst({
     where: {
       householdId,
-      createdById,
-      used: false,
+      phone: normalizedPhone,
+      status: 'PENDING',
       expiresAt: { gt: new Date() },
     },
     orderBy: { createdAt: 'desc' },
@@ -126,10 +131,16 @@ async function createInvite(householdId, createdById) {
   expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRY_DAYS);
 
   const invite = await prisma.householdInvite.create({
-    data: { householdId, createdById, expiresAt },
+    data: { 
+      householdId, 
+      createdById, 
+      phone: normalizedPhone, 
+      status: 'PENDING',
+      expiresAt 
+    },
   });
 
-  logger.info(`Invite created for household ${householdId} by user ${createdById}`);
+  logger.info(`Invite created for household ${householdId} to phone ${normalizedPhone} by user ${createdById}`);
   return buildInviteResponse(invite);
 }
 
@@ -139,52 +150,60 @@ function buildInviteResponse(invite) {
 }
 
 /**
- * Acepta una invitación y agrega al usuario al hogar.
+ * Acepta la invitación pendiente para el usuario (basado en su teléfono).
  */
-async function acceptInvite(token, userId) {
-  const invite = await prisma.householdInvite.findUnique({
-    where: { token },
+async function acceptInviteForUser(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('Usuario no encontrado');
+
+  const invite = await prisma.householdInvite.findFirst({
+    where: {
+      phone: user.phone,
+      status: 'PENDING',
+      expiresAt: { gt: new Date() },
+    },
     include: {
-      household: {
-        include: { members: true, owner: true },
-      },
+      household: { include: { members: true, owner: true } },
     },
   });
 
   if (!invite) {
-    throw new Error('Invitación no encontrada');
-  }
-  if (invite.used) {
-    throw new Error('Esta invitación ya fue utilizada');
-  }
-  if (invite.expiresAt < new Date()) {
-    throw new Error('Esta invitación ha expirado');
+    throw new Error('No tenés ninguna invitación pendiente');
   }
 
-  // Si el usuario ya es miembro, simplemente lo marcamos como usado y redirigimos
+  // Si el usuario ya es miembro, simplemente marcamos como aceptada
   const alreadyMember = invite.household.members.some((m) => m.userId === userId);
   if (alreadyMember) {
     await prisma.householdInvite.update({
-      where: { token },
-      data: { used: true, usedById: userId },
+      where: { id: invite.id },
+      data: { status: 'ACCEPTED', usedById: userId },
     });
     return { alreadyMember: true, householdName: invite.household.name };
   }
 
-  // Verificar que el usuario pueda unirse a más hogares (límite del plan del usuario)
-  const canJoin = await require('./plan.service').canJoinMoreHouseholds(userId);
-  if (!canJoin) {
-    throw new Error('Tu plan actual no permite pertenecer a más de un hogar. Pasate a Premium para multihogar.');
+  // Si el plan es FREE, debe salir de su hogar actual primero
+  if (user.plan === 'FREE') {
+    await userService.leaveHousehold(userId);
+  } else {
+    // Si es PREMIUM, verificar si puede unirse a más (aunque PREMIUM suele ser ilimitado)
+    const canJoin = await require('./plan.service').canJoinMoreHouseholds(userId);
+    if (!canJoin) {
+      throw new Error('Tu plan actual no permite pertenecer a más hogares.');
+    }
   }
 
-  // Verificar límite del plan del hogar
+  // Verificar límite del plan del hogar destino
   const canInvite = await canAddMemberToHousehold(invite.householdId);
   if (!canInvite) {
-    throw new Error('El hogar ya alcanzó el límite de miembros de su plan');
+    throw new Error('El hogar destino ya alcanzó el límite de miembros de su plan');
   }
 
-  // Agregar miembro y marcar invite como usado en una transacción
+  // Unirse y marcar invite como aceptado
   await prisma.$transaction([
+    prisma.householdInvite.update({
+      where: { id: invite.id },
+      data: { status: 'ACCEPTED', usedById: userId },
+    }),
     prisma.householdMember.create({
       data: {
         userId,
@@ -192,14 +211,59 @@ async function acceptInvite(token, userId) {
         role: 'MEMBER',
       },
     }),
-    prisma.householdInvite.update({
-      where: { token },
-      data: { used: true, usedById: userId },
-    }),
+    prisma.user.update({
+      where: { id: userId },
+      data: { activeHouseholdId: invite.householdId }
+    })
   ]);
 
-  logger.info(`User ${userId} joined household ${invite.householdId} via invite ${token}`);
+  logger.info(`User ${userId} accepted invite for household ${invite.householdId}`);
   return { alreadyMember: false, householdName: invite.household.name };
+}
+
+/**
+ * Rechaza la invitación pendiente del usuario.
+ */
+async function declineInvite(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('Usuario no encontrado');
+
+  const invite = await prisma.householdInvite.findFirst({
+    where: {
+      phone: user.phone,
+      status: 'PENDING',
+      expiresAt: { gt: new Date() },
+    },
+  });
+
+  if (!invite) return;
+
+  await prisma.householdInvite.update({
+    where: { id: invite.id },
+    data: { status: 'DECLINED' },
+  });
+
+  logger.info(`User ${userId} declined invite ${invite.id}`);
+}
+
+/**
+ * Mantiene compatibilidad con el link del frontend (token-based).
+ */
+async function acceptInvite(token, userId) {
+  const invite = await prisma.householdInvite.findUnique({
+    where: { token },
+  });
+
+  if (!invite) throw new Error('Invitación no encontrada');
+  if (invite.status !== 'PENDING') throw new Error('Esta invitación ya no es válida');
+  if (invite.expiresAt < new Date()) throw new Error('Esta invitación ha expirado');
+  
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (invite.phone !== user.phone) {
+    throw new Error('Esta invitación no es para vos');
+  }
+
+  return acceptInviteForUser(userId);
 }
 
 /**
@@ -286,4 +350,13 @@ async function createHousehold(userId, name) {
   return household;
 }
 
-module.exports = { getHouseholdInfo, createInvite, acceptInvite, listUserHouseholds, switchActiveHousehold, createHousehold };
+module.exports = { 
+  getHouseholdInfo, 
+  createInvite, 
+  acceptInvite, 
+  acceptInviteForUser,
+  declineInvite,
+  listUserHouseholds, 
+  switchActiveHousehold, 
+  createHousehold 
+};

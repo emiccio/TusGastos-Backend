@@ -1,7 +1,7 @@
 {
-  "name": "tusgastos-backend",
+  "name": "gestionando-backend",
   "version": "1.0.0",
-  "description": "Backend de TusGastos - gesti\u00f3n financiera personal v\u00eda WhatsApp",
+  "description": "Backend de GestionAndo - gesti\u00f3n financiera personal v\u00eda WhatsApp",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

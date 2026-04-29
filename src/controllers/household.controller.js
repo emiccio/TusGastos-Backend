@@ -22,8 +22,9 @@ async function getHousehold(req, res) {
  */
 async function invite(req, res) {
   try {
+    const { phone } = req.body;
     const householdId = await getActiveHousehold(req.user.id);
-    const result = await createInvite(householdId, req.user.id);
+    const result = await createInvite(householdId, req.user.id, phone);
     return res.json(result);
   } catch (error) {
     logger.error('invite error:', error);

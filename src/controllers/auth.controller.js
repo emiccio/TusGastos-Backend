@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
-const { getOrCreateUser } = require('../services/transaction.service');
 const whatsappService = require('../services/whatsapp.service');
 const logger = require('../utils/logger');
 

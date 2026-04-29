@@ -71,7 +71,7 @@ app.use((err, req, res, next) => {
 
 // ── Start ────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  logger.info(`🚀 TusGastos Backend corriendo en puerto ${PORT}`);
+  logger.info(`🚀 GestionAndo Backend corriendo en puerto ${PORT}`);
   logger.info(`📱 Webhook: POST /webhook`);
   logger.info(`🔐 Auth:    POST /api/auth/login`);
   logger.info(`💰 API:     GET  /api/transactions`);
