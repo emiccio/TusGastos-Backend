@@ -64,20 +64,35 @@ model HouseholdMember {
   @@map("household_members")
 }
 
+enum PlanType {
+  FREE
+  PREMIUM
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
 model HouseholdInvite {
-  id          String    @id @default(cuid())
-  token       String    @unique @default(cuid())
+  id          String       @id @default(cuid())
+  token       String       @unique @default(cuid())
   householdId String
-  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  household   Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
   createdById String
-  createdBy   User      @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
   usedById    String?
-  usedBy      User?     @relation("InviteUser", fields: [usedById], references: [id])
-  used        Boolean   @default(false)
+  usedBy      User?        @relation("InviteUser", fields: [usedById], references: [id])
+  phone       String?
+  status      InviteStatus @default(PENDING)
   expiresAt   DateTime
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime     @default(now())
 
   @@index([token])
+  @@index([phone])
+  @@index([phone, status])
   @@map("household_invites")
 }
 
@@ -134,11 +149,6 @@ model WhatsappMessage {
 enum TransactionType {
   income
   expense
-}
-
-enum PlanType {
-  FREE
-  PREMIUM
 }
 
 model Category {

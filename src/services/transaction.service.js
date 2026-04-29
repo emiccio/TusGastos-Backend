@@ -1,36 +1,9 @@
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 const { startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, format } = require('./date.utils');
+const userService = require('./user.service');
 
-/**
- * Obtiene o crea un usuario por número de teléfono, asignándole un Hogar por defecto.
- */
-async function getOrCreateUser(phone) {
-  let user = await prisma.user.findUnique({ where: { phone } });
-  let created = false;
-
-  if (!user) {
-    user = await prisma.user.create({ data: { phone, onboardingStep: 'WAITING_NAME' } });
-
-    const household = await prisma.household.create({
-      data: {
-        name: `Hogar`,
-        ownerId: user.id,
-        members: {
-          create: {
-            userId: user.id,
-            role: 'ADMIN'
-          }
-        }
-      }
-    });
-
-    logger.info(`New user created: ${phone} along with default household ${household.id}`);
-    created = true;
-  }
-
-  return { user, created };
-}
+// El resto de funciones se mantienen igual, pero getOrCreateUser se movió a user.service.js
 
 /**
  * Obtiene el Hogar activo para un usuario.
@@ -282,7 +255,6 @@ async function resolveQuery(userId, queryType, period, category = null) {
 }
 
 module.exports = {
-  getOrCreateUser,
   getActiveHousehold,
   createTransaction,
   getMonthlyBalance,

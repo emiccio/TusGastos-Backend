@@ -3,6 +3,8 @@ const llmService = require('../services/llm.service');
 const commandService = require('../services/command.service');
 const whatsappService = require('../services/whatsapp.service');
 const transactionService = require('../services/transaction.service');
+const userService = require('../services/user.service');
+const householdService = require('../services/household.service');
 const categoriesService = require('../services/categories.service');
 const transcriptionService = require('../services/transcription.service');
 const { resolveDate } = require('../services/date.utils');
@@ -77,7 +79,7 @@ async function handleWebhook(req, res) {
     await whatsappService.sendTypingIndicator(from, 'typing_on');
 
     // ── Obtener o crear usuario ────────────────────────────────
-    const { user, created } = await transactionService.getOrCreateUser(from);
+    const { user, created } = await userService.getOrCreateUserByPhone(from);
 
     // ── Intercepción de onboarding ─────────────────────────────
     if (user.onboardingStep !== null) {
@@ -123,6 +125,42 @@ async function handleWebhook(req, res) {
           data: { messageId: `out_${messageId}`, phone: from, body: welcome, direction: 'outbound' },
         });
         logger.info(`Onboarding completed for user ${from} — name: "${nombre}"`);
+        return;
+      }
+    }
+
+    // ── Intercepción de invitación pendiente ───────────────────
+    const pendingInvite = await prisma.householdInvite.findFirst({
+      where: {
+        phone: from,
+        status: 'PENDING',
+        expiresAt: { gt: new Date() }
+      },
+      include: { 
+        household: { 
+          select: { name: true, owner: { select: { name: true } } } 
+        } 
+      }
+    });
+
+    if (pendingInvite) {
+      if (text.trim() === "1") {
+        const result = await householdService.acceptInviteForUser(user.id);
+        const msg = `✅ ¡Listo! Te uniste al hogar *${result.householdName}*.\n\nAhora tus gastos se anotarán ahí.`;
+        await whatsappService.sendTextMessage(from, msg);
+        return;
+      } else if (text.trim() === "2") {
+        await householdService.declineInvite(user.id);
+        const msg = `Entendido. Seguís en tu hogar actual.`;
+        await whatsappService.sendTextMessage(from, msg);
+        return;
+      } else {
+        const inviterName = pendingInvite.household.owner.name || "Alguien";
+        const prompt = `👋 ${inviterName} te invitó a su hogar *${pendingInvite.household.name}* en Lulú.\n\n` +
+                       `Si aceptás, dejarás tu hogar actual y pasarás al nuevo (perderás tus datos actuales).\n\n` +
+                       `1️⃣ Unirme al hogar\n` +
+                       `2️⃣ Mantener mi hogar actual`;
+        await whatsappService.sendTextMessage(from, prompt);
         return;
       }
     }

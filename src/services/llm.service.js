@@ -22,7 +22,7 @@ const CATEGORIES = [
   'Viajes', 'Sueldo', 'Freelance', 'Transferencia', 'Otros',
 ];
 
-const SYSTEM_PROMPT = `Sos Lulu, el asistente financiero de TusGastos. Analizás mensajes de WhatsApp en español (especialmente argentino) para registrar gastos e ingresos, o responder consultas financieras.
+const SYSTEM_PROMPT = `Sos Lulu, el asistente financiero de GestionAndo. Analizás mensajes de WhatsApp en español (especialmente argentino) para registrar gastos e ingresos, o responder consultas financieras.
 
 Tu única tarea es devolver un JSON VÁLIDO sin texto adicional, sin markdown, sin explicaciones.
 
@@ -96,7 +96,7 @@ EJEMPLOS:
 "cuánto gasté en salidas" → items: [{query, category_expenses, current_month, category: "Salidas"}]
 "cuánto gasté en casa el mes pasado" → items: [{query, category_expenses, last_month, category: "Casa"}]`;
 
-const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de TusGastos. Con los datos financieros del usuario generás una respuesta breve, clara y amigable en español argentino.
+const QUERY_SYSTEM_PROMPT = `Sos Lulu, asistente financiero de GestionAndo. Con los datos financieros del usuario generás una respuesta breve, clara y amigable en español argentino.
 - Máximo 2-3 líneas
 - Máximo 1 emoji por respuesta, solo si suma algo. Si no suma, no pongas ninguno
 - Formatá los montos con $ y puntos de miles (ej: $20.000)
