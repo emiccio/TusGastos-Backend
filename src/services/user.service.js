@@ -126,16 +126,31 @@ async function leaveHousehold(userId) {
   });
 
   // Lógica de limpieza:
-  // - Si el usuario era el dueño
-  // - O si el hogar se quedó sin miembros
+  // - Si el hogar se quedó sin miembros, se elimina.
+  // - Si el usuario era el dueño pero quedan miembros, se transfiere la propiedad.
   const isOwner = household.ownerId === userId;
   const remainingMembersCount = household.members.length - 1;
 
-  if (isOwner || remainingMembersCount === 0) {
+  if (remainingMembersCount === 0) {
     await prisma.household.delete({
       where: { id: currentHouseholdId }
     });
-    logger.info(`Household ${currentHouseholdId} deleted (User ${userId} was owner or it became empty)`);
+    logger.info(`Household ${currentHouseholdId} deleted (User ${userId} left and it became empty)`);
+  } else if (isOwner) {
+    // Si era el dueño y quedan miembros, asignar a otro
+    const nextMember = household.members.find(m => m.userId !== userId);
+    if (nextMember) {
+      await prisma.household.update({
+        where: { id: currentHouseholdId },
+        data: { ownerId: nextMember.userId }
+      });
+      // Promover a ADMIN
+      await prisma.householdMember.update({
+        where: { userId_householdId: { userId: nextMember.userId, householdId: currentHouseholdId } },
+        data: { role: 'ADMIN' }
+      });
+      logger.info(`Household ${currentHouseholdId} owner reassigned from ${userId} to ${nextMember.userId}`);
+    }
   }
 
   // Limpiar activeHouseholdId

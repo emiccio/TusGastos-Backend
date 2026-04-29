@@ -113,4 +113,28 @@ async function createHousehold(req, res) {
   }
 }
 
-module.exports = { getHousehold, invite, join, listHouseholds, switchHousehold, createHousehold };
+/**
+ * PUT /api/household/name
+ * Actualiza el nombre del hogar activo.
+ * Body: { name: string }
+ */
+async function updateName(req, res) {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'El nombre es requerido' });
+    }
+
+    const { updateHouseholdName } = require('../services/household.service');
+    const householdId = await getActiveHousehold(req.user.id);
+    const updatedHousehold = await updateHouseholdName(req.user.id, householdId, name);
+
+    return res.json(updatedHousehold);
+  } catch (error) {
+    logger.error('updateName error:', error);
+    const status = error.message.includes('administradores') ? 403 : 400;
+    return res.status(status).json({ error: error.message });
+  }
+}
+
+module.exports = { getHousehold, invite, join, listHouseholds, switchHousehold, createHousehold, updateName };

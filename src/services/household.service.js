@@ -350,6 +350,28 @@ async function createHousehold(userId, name) {
   return household;
 }
 
+/**
+ * Actualiza el nombre del hogar si el usuario es ADMIN.
+ */
+async function updateHouseholdName(userId, householdId, newName) {
+  // Verificar que el usuario sea ADMIN del hogar
+  const membership = await prisma.householdMember.findUnique({
+    where: { userId_householdId: { userId, householdId } }
+  });
+
+  if (!membership || membership.role !== 'ADMIN') {
+    throw new Error('Solo los administradores pueden cambiar el nombre del hogar');
+  }
+
+  const updatedHousehold = await prisma.household.update({
+    where: { id: householdId },
+    data: { name: newName }
+  });
+
+  logger.info(`User ${userId} renamed household ${householdId} to "${newName}"`);
+  return updatedHousehold;
+}
+
 module.exports = { 
   getHouseholdInfo, 
   createInvite, 
@@ -358,5 +380,6 @@ module.exports = {
   declineInvite,
   listUserHouseholds, 
   switchActiveHousehold, 
-  createHousehold 
+  createHousehold,
+  updateHouseholdName
 };

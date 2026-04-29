@@ -9,5 +9,6 @@ router.get('/list', authMiddleware, householdController.listHouseholds);
 router.post('/invite', authMiddleware, householdController.invite);
 router.post('/join', authMiddleware, householdController.join);
 router.post('/switch', authMiddleware, householdController.switchHousehold);
+router.put('/name', authMiddleware, householdController.updateName);
 
 module.exports = router;
