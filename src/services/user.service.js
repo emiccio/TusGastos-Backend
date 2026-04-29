@@ -12,11 +12,11 @@ async function getOrCreateUserByPhone(phone) {
 
   if (!user) {
     // 1. Crear el usuario
-    user = await prisma.user.create({ 
-      data: { 
-        phone, 
-        onboardingStep: 'WAITING_NAME' 
-      } 
+    user = await prisma.user.create({
+      data: {
+        phone,
+        onboardingStep: 'WAITING_NAME'
+      }
     });
     created = true;
     logger.info(`New user created: ${phone}`);
@@ -34,13 +34,13 @@ async function getOrCreateUserByPhone(phone) {
     if (pendingInvite) {
       // 3a. Unirse al hogar invitado
       await joinHousehold(user.id, pendingInvite.householdId);
-      
+
       // Marcar invitación como aceptada
       await prisma.householdInvite.update({
         where: { id: pendingInvite.id },
         data: { status: 'ACCEPTED', usedById: user.id }
       });
-      
+
       logger.info(`User ${phone} auto-joined household ${pendingInvite.householdId} via pending invite`);
     } else {
       // 3b. Crear hogar por defecto
@@ -56,16 +56,16 @@ async function getOrCreateUserByPhone(phone) {
           }
         }
       });
-      
+
       // Establecer como activo
       await prisma.user.update({
         where: { id: user.id },
         data: { activeHouseholdId: household.id }
       });
-      
+
       logger.info(`Default household ${household.id} created for new user ${phone}`);
     }
-    
+
     // Recargar usuario para tener el activeHouseholdId actualizado
     user = await prisma.user.findUnique({ where: { id: user.id } });
   }
