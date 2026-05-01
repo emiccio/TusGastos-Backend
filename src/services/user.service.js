@@ -18,10 +18,11 @@ async function getOrCreateUserByPhone(phone) {
         onboardingStep: 'WAITING_NAME'
       }
     });
+
     created = true;
     logger.info(`New user created: ${phone}`);
 
-    // 2. Buscar invitación pendiente por teléfono
+    // 2. Buscar invitación pendiente
     const pendingInvite = await prisma.householdInvite.findFirst({
       where: {
         phone,
@@ -35,13 +36,18 @@ async function getOrCreateUserByPhone(phone) {
       // 3a. Unirse al hogar invitado
       await joinHousehold(user.id, pendingInvite.householdId);
 
-      // Marcar invitación como aceptada
       await prisma.householdInvite.update({
         where: { id: pendingInvite.id },
-        data: { status: 'ACCEPTED', usedById: user.id }
+        data: {
+          status: 'ACCEPTED',
+          usedById: user.id
+        }
       });
 
-      logger.info(`User ${phone} auto-joined household ${pendingInvite.householdId} via pending invite`);
+      logger.info(
+        `User ${phone} auto-joined household ${pendingInvite.householdId} via pending invite`
+      );
+
     } else {
       // 3b. Crear hogar por defecto
       const household = await prisma.household.create({
@@ -57,7 +63,6 @@ async function getOrCreateUserByPhone(phone) {
         }
       });
 
-      // Establecer como activo
       await prisma.user.update({
         where: { id: user.id },
         data: { activeHouseholdId: household.id }
@@ -66,8 +71,10 @@ async function getOrCreateUserByPhone(phone) {
       logger.info(`Default household ${household.id} created for new user ${phone}`);
     }
 
-    // Recargar usuario para tener el activeHouseholdId actualizado
-    user = await prisma.user.findUnique({ where: { id: user.id } });
+    // Recargar usuario
+    user = await prisma.user.findUnique({
+      where: { id: user.id }
+    });
   }
 
   return { user, created };
@@ -77,10 +84,17 @@ async function getOrCreateUserByPhone(phone) {
  * Agrega a un usuario a un hogar y lo establece como activo.
  */
 async function joinHousehold(userId, householdId) {
-  // Crear membresía (si no existe)
+
   const membership = await prisma.householdMember.upsert({
-    where: { userId_householdId: { userId, householdId } },
-    update: { role: 'MEMBER' },
+    where: {
+      userId_householdId: {
+        userId,
+        householdId
+      }
+    },
+    update: {
+      role: 'MEMBER'
+    },
     create: {
       userId,
       householdId,
@@ -88,7 +102,6 @@ async function joinHousehold(userId, householdId) {
     }
   });
 
-  // Establecer como activo
   await prisma.user.update({
     where: { id: userId },
     data: { activeHouseholdId: householdId }
@@ -99,65 +112,92 @@ async function joinHousehold(userId, householdId) {
 
 /**
  * El usuario sale de su hogar actual.
- * Si el hogar queda vacío o el usuario es el dueño, se elimina el hogar.
  */
 async function leaveHousehold(userId) {
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { memberships: true }
   });
 
-  if (!user || user.memberships.length === 0) return;
+  if (!user || user.memberships.length === 0) {
+    return;
+  }
 
-  // Si tiene varios hogares (Premium), buscamos el activo o el primero
-  const currentHouseholdId = user.activeHouseholdId || user.memberships[0].householdId;
+  const currentHouseholdId =
+    user.activeHouseholdId || user.memberships[0].householdId;
 
-  // Obtener info del hogar antes de borrar nada
   const household = await prisma.household.findUnique({
     where: { id: currentHouseholdId },
-    include: { members: { orderBy: { joinedAt: 'asc' } } }
+    include: {
+      members: {
+        orderBy: { joinedAt: 'asc' }
+      }
+    }
   });
 
-  if (!household) return;
+  if (!household) {
+    return;
+  }
 
-  // Eliminar membresía
+  // eliminar membership
   await prisma.householdMember.delete({
-    where: { userId_householdId: { userId, householdId: currentHouseholdId } }
+    where: {
+      userId_householdId: {
+        userId,
+        householdId: currentHouseholdId
+      }
+    }
   });
 
-  // Lógica de limpieza:
-  // - Si el hogar se quedó sin miembros, se elimina.
-  // - Si el usuario era el dueño pero quedan miembros, se transfiere la propiedad.
-  const isOwner = household.ownerId === userId;
-  const remainingMembersCount = household.members.length - 1;
+  const remainingMembers = household.members.filter(
+    m => m.userId !== userId
+  );
 
-  if (remainingMembersCount === 0) {
+  if (remainingMembers.length === 0) {
+
     await prisma.household.delete({
       where: { id: currentHouseholdId }
     });
-    logger.info(`Household ${currentHouseholdId} deleted (User ${userId} left and it became empty)`);
-  } else if (isOwner) {
-    // Si era el dueño y quedan miembros, asignar a otro
-    const nextMember = household.members.find(m => m.userId !== userId);
-    if (nextMember) {
-      await prisma.household.update({
-        where: { id: currentHouseholdId },
-        data: { ownerId: nextMember.userId }
-      });
-      // Promover a ADMIN
-      await prisma.householdMember.update({
-        where: { userId_householdId: { userId: nextMember.userId, householdId: currentHouseholdId } },
-        data: { role: 'ADMIN' }
-      });
-      logger.info(`Household ${currentHouseholdId} owner reassigned from ${userId} to ${nextMember.userId}`);
-    }
+
+    logger.info(
+      `Household ${currentHouseholdId} deleted (User ${userId} left and it became empty)`
+    );
+
+  } else if (household.ownerId === userId) {
+
+    const nextMember = remainingMembers[0];
+
+    await prisma.household.update({
+      where: { id: currentHouseholdId },
+      data: {
+        ownerId: nextMember.userId
+      }
+    });
+
+    await prisma.householdMember.update({
+      where: {
+        userId_householdId: {
+          userId: nextMember.userId,
+          householdId: currentHouseholdId
+        }
+      },
+      data: {
+        role: 'ADMIN'
+      }
+    });
+
+    logger.info(
+      `Household ${currentHouseholdId} ownership transferred to ${nextMember.userId}`
+    );
   }
 
-  // Limpiar activeHouseholdId
+  // limpiar hogar activo
   await prisma.user.update({
     where: { id: userId },
     data: { activeHouseholdId: null }
   });
+
 }
 
 module.exports = {
