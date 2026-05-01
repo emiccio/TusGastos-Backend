@@ -115,7 +115,7 @@ async function leaveHousehold(userId) {
   // Obtener info del hogar antes de borrar nada
   const household = await prisma.household.findUnique({
     where: { id: currentHouseholdId },
-    include: { members: true }
+    include: { members: { orderBy: { joinedAt: 'asc' } } }
   });
 
   if (!household) return;
