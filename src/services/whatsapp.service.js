@@ -93,6 +93,7 @@ function extractMessageData(body) {
       text: message.text?.body || null,
       audioId: message.audio?.id || null,
       timestamp: new Date(parseInt(message.timestamp) * 1000),
+      phoneNumberId: value.metadata?.phone_number_id,
     };
   } catch (error) {
     logger.error('Error extracting message data:', error);

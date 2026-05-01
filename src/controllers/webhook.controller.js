@@ -44,7 +44,14 @@ async function handleWebhook(req, res) {
     const messageData = whatsappService.extractMessageData(body);
     if (!messageData) return;
 
-    let { messageId, from, text, audioId, type, timestamp } = messageData;
+    let { messageId, from, text, audioId, type, timestamp, phoneNumberId } = messageData;
+    
+    // Evitar procesar mensajes de otros números en la misma cuenta de WhatsApp Business (WABA)
+    if (phoneNumberId && phoneNumberId !== process.env.WHATSAPP_PHONE_NUMBER_ID) {
+      logger.debug(`Ignoring message meant for different phone number ID: ${phoneNumberId}`);
+      return;
+    }
+
     logger.info(`Incoming message from ${from}: "${text}"`);
 
     // ── Deduplicación ──────────────────────────────────────────
