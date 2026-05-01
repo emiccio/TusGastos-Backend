@@ -11,9 +11,8 @@ const WA_API_URL = 'https://graph.facebook.com/v19.0';
 async function sendTextMessage(to, text) {
   // Ajuste para números de Argentina (549 -> 54) y México (521 -> 52) 
   // que WhatsApp API requiere enviar sin el 9 / 1
-  // NOTA: Para números de prueba en Meta, el número de destino debe coincidir EXACTAMENTE con el número verificado.
-  // if (to.startsWith('549')) to = '54' + to.slice(3);
-  // else if (to.startsWith('521')) to = '52' + to.slice(3);
+  if (to.startsWith('549')) to = '54' + to.slice(3);
+  else if (to.startsWith('521')) to = '52' + to.slice(3);
 
   try {
     const response = await axios.post(
