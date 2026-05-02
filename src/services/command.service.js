@@ -13,11 +13,11 @@ async function handleCommand(message, user) {
   const msg = normalize(message);
 
   // ── DASHBOARD ─────────────────────────
-  if (msg.includes("dashboard") || msg.includes("panel")) {
+  if (msg.includes("dashboard") || msg.includes("panel") || msg.includes("gestionando") || msg.includes("perfil")) {
     return {
       handled: true,
       type: "response",
-      response: "Podés ver tu panel acá:\nhttps://tus-gastos.vercel.app/dashboard"
+      response: "Podés ver tu panel acá:\nhttps://gestionando-gastos.vercel.app/dashboard"
     };
   }
 
