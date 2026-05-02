@@ -313,7 +313,7 @@ async function handleWebhook(req, res) {
     logger.info(`Response sent to ${from}: "${responseText}"`);
 
   } catch (error) {
-    logger.error('Error processing webhook:', error);
+    logger.error('Error processing webhook:', error.response?.data || error.message);
     try {
       const messageData = whatsappService.extractMessageData(req.body);
       if (messageData?.from) {

@@ -1,5 +1,5 @@
 const logger = require('../utils/logger');
-const { getHouseholdInfo, createInvite, acceptInvite } = require('../services/household.service');
+const { getHouseholdInfo, createInvite, acceptInvite, previewInvite: previewInviteService, previewInviteForToken } = require('../services/household.service');
 const { getActiveHousehold } = require('../services/transaction.service');
 
 /**
@@ -137,4 +137,24 @@ async function updateName(req, res) {
   }
 }
 
-module.exports = { getHousehold, invite, join, listHouseholds, switchHousehold, createHousehold, updateName };
+module.exports = { getHousehold, invite, previewJoin, join, listHouseholds, switchHousehold, createHousehold, updateName };
+
+/**
+ * GET /api/household/join
+ * Previsualiza una invitación sin aceptarla (para mostrar confirmación).
+ * Query: ?token=string
+ */
+async function previewJoin(req, res) {
+  try {
+    const { token } = req.query;
+    if (!token) {
+      return res.status(400).json({ error: 'El token es requerido' });
+    }
+    const result = await previewInviteForToken(token, req.user.id);
+    return res.json(result);
+  } catch (error) {
+    logger.error('previewJoin error:', error);
+    const status = error.message.includes('no encontrada') ? 404 : 400;
+    return res.status(status).json({ error: error.message });
+  }
+}

@@ -247,6 +247,36 @@ async function declineInvite(userId) {
 }
 
 /**
+ * Devuelve información de una invitación sin aceptarla (para mostrar confirmación al invitado).
+ */
+async function previewInvite(token, userId) {
+  const invite = await prisma.householdInvite.findUnique({
+    where: { token },
+    include: {
+      household: {
+        select: { name: true, owner: { select: { name: true, phone: true } } }
+      }
+    }
+  });
+
+  if (!invite) throw new Error('Invitación no encontrada');
+  if (invite.status !== 'PENDING') throw new Error('Esta invitación ya no es válida');
+  if (invite.expiresAt < new Date()) throw new Error('Esta invitación ha expirado');
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (invite.phone !== user.phone) {
+    throw new Error('Esta invitación no es para vos');
+  }
+
+  const ownerName = invite.household.owner.name || `+${invite.household.owner.phone}`;
+  return {
+    householdName: invite.household.name,
+    inviterName: ownerName,
+    expiresAt: invite.expiresAt,
+  };
+}
+
+/**
  * Mantiene compatibilidad con el link del frontend (token-based).
  */
 async function acceptInvite(token, userId) {
@@ -372,12 +402,21 @@ async function updateHouseholdName(userId, householdId, newName) {
   return updatedHousehold;
 }
 
+/**
+ * Wrapper para usar previewInvite desde el endpoint GET /household/join
+ */
+async function previewInviteForToken(token, userId) {
+  return previewInvite(token, userId);
+}
+
 module.exports = { 
   getHouseholdInfo, 
   createInvite, 
   acceptInvite, 
   acceptInviteForUser,
   declineInvite,
+  previewInvite,
+  previewInviteForToken,
   listUserHouseholds, 
   switchActiveHousehold, 
   createHousehold,
