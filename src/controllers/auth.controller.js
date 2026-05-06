@@ -6,6 +6,38 @@ const logger = require('../utils/logger');
 // TTL del código OTP en minutos
 const OTP_TTL_MINUTES = 10;
 
+function sanitizePhone(phone) {
+  return String(phone || '').replace(/[\s\-\+\(\)]/g, '');
+}
+
+function buildPhoneCandidates(phone) {
+  const normalized = sanitizePhone(phone);
+  const candidates = new Set([normalized]);
+
+  if (normalized.startsWith('54')) {
+    if (normalized.startsWith('549')) {
+      candidates.add('54' + normalized.slice(3));
+    } else {
+      candidates.add('549' + normalized.slice(2));
+    }
+  }
+
+  if (normalized.startsWith('52')) {
+    if (normalized.startsWith('521')) {
+      candidates.add('52' + normalized.slice(3));
+    } else {
+      candidates.add('521' + normalized.slice(2));
+    }
+  }
+
+  return Array.from(candidates).filter(Boolean);
+}
+
+async function findUserByPhoneCandidates(phone) {
+  const candidates = buildPhoneCandidates(phone);
+  return prisma.user.findFirst({ where: { phone: { in: candidates } } });
+}
+
 /**
  * Genera un código numérico de 6 dígitos
  */
@@ -25,10 +57,10 @@ async function requestOtp(req, res) {
       return res.status(400).json({ error: 'El número de teléfono es requerido' });
     }
 
-    const normalizedPhone = phone.replace(/[\s\-\+\(\)]/g, '');
+    const normalizedPhone = sanitizePhone(phone);
 
     // Verificar que el usuario existe y tiene el onboarding completo
-    const existingUser = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+    const existingUser = await findUserByPhoneCandidates(normalizedPhone);
 
     if (!existingUser) {
       // No revelar si el usuario existe o no — mensaje genérico
@@ -58,11 +90,11 @@ async function requestOtp(req, res) {
 
     // Mandar el código por WhatsApp
     await whatsappService.sendTextMessage(
-      normalizedPhone,
+      existingUser.phone,
       `Tu código de acceso a Lulú es: *${code}*\n\nVálido por ${OTP_TTL_MINUTES} minutos. No lo compartas con nadie.`
     );
 
-    logger.info(`OTP sent to ${normalizedPhone}`);
+    logger.info(`OTP sent to ${existingUser.phone}`);
 
     return res.json({ success: true, message: 'Código enviado por WhatsApp' });
 
@@ -84,9 +116,9 @@ async function login(req, res) {
       return res.status(400).json({ error: 'Número y código son requeridos' });
     }
 
-    const normalizedPhone = phone.replace(/[\s\-\+\(\)]/g, '');
+    const normalizedPhone = sanitizePhone(phone);
 
-    const user = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+    const user = await findUserByPhoneCandidates(normalizedPhone);
 
     if (!user) {
       return res.status(401).json({ error: 'Código inválido o expirado' });
