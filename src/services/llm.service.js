@@ -204,16 +204,27 @@ function getProviderOrder() {
 function isRetryableError(err) {
   // Errores donde tiene sentido probar el otro provider
   const status = err.status || err.httpStatusCode;
-  const msg = err.message || '';
+  const msg = (err.message || '').toLowerCase();
   return (
     status === 404 ||                          // Model not found / deprecado
     status === 429 ||                          // Rate limit / quota
+    status === 500 ||                          // Error temporal del provider
+    status === 502 ||                          // Bad gateway
+    status === 503 ||                          // Service unavailable / high demand
+    status === 504 ||                          // Gateway timeout
     status === 401 ||                          // Auth inválida
     status === 403 ||                          // Forbidden
     msg.includes('quota') ||
-    msg.includes('RESOURCE_EXHAUSTED') ||      // Gemini quota
+    msg.includes('resource_exhausted') ||      // Gemini quota
     msg.includes('not found') ||               // Model deprecado
-    msg.includes('API key') ||
+    msg.includes('high demand') ||             // Gemini saturado
+    msg.includes('service unavailable') ||
+    msg.includes('temporarily unavailable') ||
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('econnreset') ||
+    msg.includes('fetch failed') ||
+    msg.includes('api key') ||
     msg.includes('billing')
   );
 }
