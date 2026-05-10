@@ -33,22 +33,29 @@ async function handleCommand(message, user) {
       handled: true,
       type: "response",
       response:
-        `Soy Lulú y estoy acá para ayudarte a controlar tu plata.
+        `Soy Lulú. Te ayudo a registrar y entender los gastos de tu casa desde WhatsApp.
 
-Podés decirme cosas como:
+Para registrar gastos:
 • "super 20k"
-• "cobré 500k"
 • "farmacia 8500 ayer"
+• "nafta 12000 con crédito"
 
-O preguntarme:
-• "¿cuánto gasté hoy?"
+Para registrar ingresos:
+• "cobré 500k"
+• "me transfirieron 100000"
+
+También podés mandarme un audio cortito con uno o varios movimientos.
+
+Para consultar:
+• "¿cuánto gasté este mes?"
+• "¿cuánto gasté en supermercado?"
 • "saldo"
-• "gastos de este mes"
 
-Comandos directos:
-- *panel*: link a la web
-- *categorias*: lista de categorías
-- *ayuda*: este mensaje`
+Comandos:
+• *panel*: abrir el dashboard
+• *categorias*: ver categorías
+• *hogares*: ver o cambiar hogar
+• *ayuda*: ver este mensaje`
     };
   }
 
@@ -66,8 +73,9 @@ Comandos directos:
 ${categories.map(c => `• ${c}`).join("\n")}
 
 Ejemplo:
-uber 3500
-supermercado 15000`
+• "uber 3500"
+• "supermercado 15000"
+• "cobré 500k"`
     };
   }
 

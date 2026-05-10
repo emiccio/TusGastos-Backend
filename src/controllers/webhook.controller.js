@@ -7,8 +7,72 @@ const userService = require('../services/user.service');
 const householdService = require('../services/household.service');
 const categoriesService = require('../services/categories.service');
 const transcriptionService = require('../services/transcription.service');
-const { resolveDate } = require('../services/date.utils');
+const { resolveDate, format } = require('../services/date.utils');
 const logger = require('../utils/logger');
+
+const AUDIO_MAX_BYTES = 100 * 1024;
+
+function formatMoney(amount) {
+  return `$${Number(amount || 0).toLocaleString('es-AR')}`;
+}
+
+function formatMovementDate(date) {
+  const movementDate = date instanceof Date ? date : new Date(date);
+  const today = new Date();
+
+  if (
+    movementDate.getFullYear() === today.getFullYear() &&
+    movementDate.getMonth() === today.getMonth() &&
+    movementDate.getDate() === today.getDate()
+  ) {
+    return 'Hoy';
+  }
+
+  return format(movementDate, 'dd/MM/yyyy');
+}
+
+function normalizeCategory(category) {
+  return category && String(category).trim() ? String(category).trim() : 'Otros';
+}
+
+function isValidTransactionItem(item) {
+  return (
+    item &&
+    ['expense', 'income'].includes(item.type) &&
+    Number.isFinite(Number(item.amount)) &&
+    Number(item.amount) > 0
+  );
+}
+
+function buildSavedMovementsResponse(savedItems, householdName) {
+  const title = savedItems.length === 1
+    ? `Listo, registré este ${savedItems[0].type === 'income' ? 'ingreso' : 'gasto'}:`
+    : `Listo, registré estos ${savedItems.length} movimientos:`;
+
+  const lines = savedItems.map((item, index) => {
+    const prefix = savedItems.length > 1 ? `${index + 1}. ` : '';
+    const name = item.description || (item.type === 'income' ? 'Ingreso' : 'Gasto');
+
+    return [
+      `${prefix}*${name}*`,
+      `Monto: ${formatMoney(item.amount)}`,
+      `Categoría: ${item.category}`,
+      `Fecha: ${formatMovementDate(item.date)}`,
+      householdName ? `Hogar: ${householdName}` : null,
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
+
+  return `${title}\n\n${lines}\n\nSi querés corregir algo, podés ajustarlo desde el panel.`;
+}
+
+function buildClarificationResponse() {
+  return `No lo guardé porque me faltó un dato claro.
+
+Podés mandármelo así:
+• "super 20k"
+• "cobré 500k"
+• "ayer pagué 10k de nafta y 30k de seguro"`;
+}
 
 /**
  * GET /webhook
@@ -63,19 +127,50 @@ async function handleWebhook(req, res) {
 
     // convertir audio → texto
     if (type === 'audio' && audioId) {
-      const audioBuffer = await whatsappService.downloadAudio(audioId);
+      let audioBuffer;
 
-      if (audioBuffer.length > 100 * 1024) {
+      try {
+        audioBuffer = await whatsappService.downloadAudio(audioId);
+      } catch (error) {
+        logger.error('Error downloading WhatsApp audio:', error.response?.data || error.message);
         await whatsappService.sendTextMessage(
           from,
-          '🎤 El audio es demasiado largo. Mandame uno cortito diciendo el gasto 🙂'
+          'No pude descargar el audio. Probá mandármelo de nuevo en un momento.'
         );
         return;
       }
-      text = await transcriptionService.transcribeAudio(audioBuffer);
+
+      if (audioBuffer.length > AUDIO_MAX_BYTES) {
+        await whatsappService.sendTextMessage(
+          from,
+          'El audio es demasiado largo para procesarlo bien. Mandame uno más cortito, idealmente con uno o pocos movimientos.'
+        );
+        return;
+      }
+
+      try {
+        text = await transcriptionService.transcribeAudio(audioBuffer);
+      } catch (error) {
+        const message = ['EMPTY_AUDIO', 'EMPTY_TRANSCRIPTION'].includes(error.code || error.message)
+          ? 'No llegué a entender el audio. Mandame otro más claro o escribime el gasto en texto.'
+          : 'Tuve un problema transcribiendo el audio. Probá de nuevo en un momento o mandámelo escrito.';
+
+        await whatsappService.sendTextMessage(from, message);
+        return;
+      }
     }
 
-    if (!text) return;
+    if (!text || !text.trim()) {
+      if (type === 'audio') {
+        await whatsappService.sendTextMessage(
+          from,
+          'No llegué a entender el audio. Mandame otro más claro o escribime el gasto en texto.'
+        );
+      }
+      return;
+    }
+
+    text = text.trim();
 
     // ── Guardar mensaje ───────────────
     await prisma.whatsappMessage.create({
@@ -240,61 +335,72 @@ async function handleWebhook(req, res) {
     logger.debug(`LLM parsed: ${JSON.stringify(parsed)}`);
 
     const items = parsed.items || [];
-    let responseText = parsed.confirmation || '';
+    let responseText = '';
+    const savedItems = [];
+    const transactionItems = items.filter(item => ['expense', 'income'].includes(item.type));
 
-    // ── Procesar cada ítem ─────────────────────────────────────
-    for (const item of items) {
-      switch (item.type) {
-        case 'expense':
-        case 'income': {
-          let categoryToSave = item.category;
+    if (transactionItems.some(item => !isValidTransactionItem(item))) {
+      logger.warn(`Message ignored due to invalid transaction item: ${JSON.stringify(items)}`);
+      responseText = buildClarificationResponse();
+    } else {
+      // ── Procesar cada ítem ─────────────────────────────────────
+      for (const item of items) {
+        switch (item.type) {
+          case 'expense':
+          case 'income': {
 
-          if (isPremium && item.type === 'expense') {
-            const ruleMatch = await categoriesService.evaluateRules(householdId, item.description);
-            if (ruleMatch) {
-              logger.info(`Rule matched for "${item.description}": replacing category ${categoryToSave} -> ${ruleMatch}`);
-              categoryToSave = ruleMatch;
+            const movementDate = resolveDate(item.date);
+            let categoryToSave = normalizeCategory(item.category);
+
+            if (isPremium && item.type === 'expense') {
+              const ruleMatch = await categoriesService.evaluateRules(householdId, item.description);
+              if (ruleMatch) {
+                logger.info(`Rule matched for "${item.description}": replacing category ${categoryToSave} -> ${ruleMatch}`);
+                categoryToSave = ruleMatch;
+              }
             }
+
+            await transactionService.createTransaction({
+              userId: user.id,
+              type: item.type,
+              amount: Number(item.amount),
+              category: categoryToSave,
+              description: item.description,
+              date: movementDate,
+              paymentMethod: item.paymentMethod || 'cash',
+              rawMessage: text,
+            });
+            logger.info(`Transaction created: ${item.type} $${item.amount} (${categoryToSave})`);
+            savedItems.push({
+              ...item,
+              amount: Number(item.amount),
+              category: categoryToSave,
+              date: movementDate,
+            });
+            break;
           }
 
-          await transactionService.createTransaction({
-            userId: user.id,
-            type: item.type,
-            amount: item.amount,
-            category: categoryToSave,
-            description: item.description,
-            date: resolveDate(item.date),
-            paymentMethod: item.paymentMethod || 'cash',
-            rawMessage: text,
-          });
-          logger.info(`Transaction created: ${item.type} $${item.amount} (${categoryToSave})`);
-          break;
-        }
+          case 'query': {
+            const data = await transactionService.resolveQuery(user.id, item.queryType, item.period, item.category || null);
+            responseText = await llmService.generateQueryResponse(item.queryType, data);
+            break;
+          }
 
-        case 'query': {
-          const data = await transactionService.resolveQuery(user.id, item.queryType, item.period, item.category || null);
-          responseText = await llmService.generateQueryResponse(item.queryType, data);
-          break;
-        }
-
-        case 'unknown':
-        default: {
-          responseText = parsed.confirmation ||
-            '🤔 No entendí bien. Podés decirme:\n• "carnicería 23k, verdulería 17k"\n• "cobré 500k"\n• "¿cuánto gasté este mes?"';
-          break;
+          case 'unknown':
+          default: {
+            responseText = buildClarificationResponse();
+            break;
+          }
         }
       }
     }
 
-    // Si el LLM no devolvió confirmation, armar una genérica
+    if (savedItems.length > 0) {
+      responseText = buildSavedMovementsResponse(savedItems, household?.name);
+    }
+
     if (!responseText) {
-      const txItems = items.filter(i => i.type === 'expense' || i.type === 'income');
-      if (txItems.length > 0) {
-        const total = txItems.reduce((sum, i) => sum + (i.amount || 0), 0);
-        responseText = txItems.length === 1
-          ? `✅ Anotado $${txItems[0].amount.toLocaleString('es-AR')} en ${txItems[0].category}`
-          : `✅ Listo! Anoté ${txItems.length} movimientos por $${total.toLocaleString('es-AR')} en total`;
-      }
+      responseText = buildClarificationResponse();
     }
 
     // ── Enviar respuesta ───────────────────────────────────────
