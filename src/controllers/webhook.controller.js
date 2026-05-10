@@ -46,27 +46,28 @@ function isValidTransactionItem(item) {
 
 function buildSavedMovementsResponse(savedItems, householdName) {
   const title = savedItems.length === 1
-    ? `Listo, registré este ${savedItems[0].type === 'income' ? 'ingreso' : 'gasto'}:`
-    : `Listo, registré estos ${savedItems.length} movimientos:`;
+    ? `✅ Listo, registré este ${savedItems[0].type === 'income' ? 'ingreso' : 'gasto'}:`
+    : `✅ Listo, registré estos ${savedItems.length} movimientos:`;
 
   const lines = savedItems.map((item, index) => {
     const prefix = savedItems.length > 1 ? `${index + 1}. ` : '';
     const name = item.description || (item.type === 'income' ? 'Ingreso' : 'Gasto');
+    const typeIcon = item.type === 'income' ? '💰' : '💸';
 
     return [
-      `${prefix}*${name}*`,
-      `Monto: ${formatMoney(item.amount)}`,
-      `Categoría: ${item.category}`,
-      `Fecha: ${formatMovementDate(item.date)}`,
-      householdName ? `Hogar: ${householdName}` : null,
+      `${prefix}${typeIcon} *${name}*`,
+      `💵 Monto: ${formatMoney(item.amount)}`,
+      `🏷️ Categoría: ${item.category}`,
+      `📅 Fecha: ${formatMovementDate(item.date)}`,
+      householdName ? `🏠 Hogar: ${householdName}` : null,
     ].filter(Boolean).join('\n');
   }).join('\n\n');
 
-  return `${title}\n\n${lines}\n\nSi querés corregir algo, podés ajustarlo desde el panel.`;
+  return `${title}\n\n${lines}\n\nSi querés corregir algo, podés ajustarlo desde el panel 🙂`;
 }
 
 function buildClarificationResponse() {
-  return `No lo guardé porque me faltó un dato claro.
+  return `🤔 No lo guardé porque me faltó un dato claro.
 
 Podés mandármelo así:
 • "super 20k"
@@ -135,7 +136,7 @@ async function handleWebhook(req, res) {
         logger.error('Error downloading WhatsApp audio:', error.response?.data || error.message);
         await whatsappService.sendTextMessage(
           from,
-          'No pude descargar el audio. Probá mandármelo de nuevo en un momento.'
+          '🎙️ No pude descargar el audio. Probá mandármelo de nuevo en un momento.'
         );
         return;
       }
@@ -143,7 +144,7 @@ async function handleWebhook(req, res) {
       if (audioBuffer.length > AUDIO_MAX_BYTES) {
         await whatsappService.sendTextMessage(
           from,
-          'El audio es demasiado largo para procesarlo bien. Mandame uno más cortito, idealmente con uno o pocos movimientos.'
+          '🎙️ El audio es demasiado largo para procesarlo bien. Mandame uno más cortito, idealmente con uno o pocos movimientos.'
         );
         return;
       }
@@ -152,8 +153,8 @@ async function handleWebhook(req, res) {
         text = await transcriptionService.transcribeAudio(audioBuffer);
       } catch (error) {
         const message = ['EMPTY_AUDIO', 'EMPTY_TRANSCRIPTION'].includes(error.code || error.message)
-          ? 'No llegué a entender el audio. Mandame otro más claro o escribime el gasto en texto.'
-          : 'Tuve un problema transcribiendo el audio. Probá de nuevo en un momento o mandámelo escrito.';
+          ? '🎙️ No llegué a entender el audio. Mandame otro más claro o escribime el gasto en texto.'
+          : '🎙️ Tuve un problema transcribiendo el audio. Probá de nuevo en un momento o mandámelo escrito.';
 
         await whatsappService.sendTextMessage(from, message);
         return;
@@ -164,7 +165,7 @@ async function handleWebhook(req, res) {
       if (type === 'audio') {
         await whatsappService.sendTextMessage(
           from,
-          'No llegué a entender el audio. Mandame otro más claro o escribime el gasto en texto.'
+          '🎙️ No llegué a entender el audio. Mandame otro más claro o escribime el gasto en texto.'
         );
       }
       return;

@@ -9,6 +9,35 @@ function normalize(text) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function looksLikeUncertainQuery(msg) {
+  const uncertainty = [
+    "no se",
+    "no recuerdo",
+    "ni idea",
+    "no tengo claro",
+  ];
+
+  const financialQuestion = [
+    "cuanto gaste",
+    "cuanto cobre",
+    "saldo",
+    "balance",
+    "mis gastos",
+    "mis ingresos",
+  ];
+
+  return uncertainty.some(term => msg.includes(term)) &&
+    financialQuestion.some(term => msg.includes(term));
+}
+
+function asksUnsupportedPeriod(msg) {
+  const asksExpenses = msg.includes("cuanto gaste") || msg.includes("mis gastos") || msg.includes("resumen de gastos");
+  const asksIncome = msg.includes("cuanto cobre") || msg.includes("mis ingresos") || msg.includes("resumen de ingresos");
+  const unsupportedPeriod = ["hoy", "ayer", "semana", "semanal"].some(term => msg.includes(term));
+
+  return (asksExpenses || asksIncome) && unsupportedPeriod;
+}
+
 async function handleCommand(message, user) {
   const msg = normalize(message);
 
@@ -33,25 +62,25 @@ async function handleCommand(message, user) {
       handled: true,
       type: "response",
       response:
-        `Soy Lulú. Te ayudo a registrar y entender los gastos de tu casa desde WhatsApp.
+        `👋 Soy Lulú. Te ayudo a registrar y entender los gastos de tu casa desde WhatsApp.
 
-Para registrar gastos:
+💸 Para registrar gastos:
 • "super 20k"
 • "farmacia 8500 ayer"
 • "nafta 12000 con crédito"
 
-Para registrar ingresos:
+💰 Para registrar ingresos:
 • "cobré 500k"
 • "me transfirieron 100000"
 
-También podés mandarme un audio cortito con uno o varios movimientos.
+🎙️ También podés mandarme un audio cortito con uno o varios movimientos.
 
-Para consultar:
+📊 Para consultar:
 • "¿cuánto gasté este mes?"
 • "¿cuánto gasté en supermercado?"
 • "saldo"
 
-Comandos:
+⚙️ Comandos:
 • *panel*: abrir el dashboard
 • *categorias*: ver categorías
 • *hogares*: ver o cambiar hogar
@@ -80,6 +109,33 @@ Ejemplo:
   }
 
   // ── QUERIES RÁPIDAS ───────────────────
+  if (looksLikeUncertainQuery(msg)) {
+    return {
+      handled: true,
+      type: "response",
+      response:
+        `🤔 Te puedo ayudar a revisarlo, pero no quiero asumir mal.
+
+Probá preguntarme algo concreto como:
+• "¿cuánto gasté este mes?"
+• "¿cuánto gasté en supermercado?"
+• "saldo"`
+    };
+  }
+
+  if (asksUnsupportedPeriod(msg)) {
+    return {
+      handled: true,
+      type: "response",
+      response:
+        `📊 Todavía no tengo bien afinadas las consultas por día o semana desde WhatsApp.
+
+Por ahora preguntame:
+• "¿cuánto gasté este mes?"
+• "¿cuánto gasté en supermercado?"
+• "saldo"`
+    };
+  }
 
   // Saldo / Balance
   if (msg.includes("saldo") || msg.includes("balance")) {
